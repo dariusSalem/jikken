@@ -69,6 +69,12 @@ pub enum Commands {
         /// Toggle tag matching logic to select tests matching any of the given tags
         #[arg(long, default_value_t = false)]
         tags_or: bool,
+
+        #[arg(short)]
+        recursive: bool,
+
+        #[arg(name = "path")]
+        paths: Vec<String>,
     },
 
     /// Process tests without calling API endpoints
@@ -91,6 +97,12 @@ pub enum Commands {
         /// Toggle tag matching logic to select tests matching any of the given tags
         #[arg(long, default_value_t = false)]
         tags_or: bool,
+
+        #[arg(short)]
+        recursive: bool,
+
+        #[arg(name = "path")]
+        paths: Vec<String>,
     },
 
     /// Create a new test
@@ -266,6 +278,10 @@ async fn run_tests(
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let cli = Cli::parse();
     let cli_args = Box::new(serde_json::to_value(&cli)?);
+
+    if cli_paths.is_empty() {
+        cli_paths.push(".".to_string())
+    }
 
     let log_level = if cli.verbose {
         Level::Debug
