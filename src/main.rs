@@ -283,6 +283,33 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         cli_paths.push(".".to_string())
     }
 
+    let cli_tag_mode = if tags_or { TagMode::OR } else { TagMode::AND };
+    let config = config::get_config().await;
+    let files = get_files(cli_paths, recursive).await?;
+    let test_plurality = if files.len() != 1 { "s" } else { "" };
+
+    info!(
+        "Jikken found {} test file{}.\n",
+        files.len(),
+        test_plurality
+    );
+
+    let report =
+        executor::execute_tests(config, files, dryrun_mode, tags, cli_tag_mode, cli_args).await;
+
+    info!(
+        "Jikken executed {} test{} with {} passed and {} failed.\n",
+        report.run, test_plurality, report.passed, report.failed
+    );
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let cli = Cli::parse();
+    let cli_args = Box::new(serde_json::to_value(&cli)?);
+
     let log_level = if cli.verbose {
         Level::Debug
     } else if cli.trace {
