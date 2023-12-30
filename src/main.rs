@@ -69,12 +69,6 @@ pub enum Commands {
         /// Toggle tag matching logic to select tests matching any of the given tags
         #[arg(long, default_value_t = false)]
         tags_or: bool,
-
-        #[arg(short)]
-        recursive: bool,
-
-        #[arg(name = "path")]
-        paths: Vec<String>,
     },
 
     /// Process tests without calling API endpoints
