@@ -13,8 +13,9 @@ use clap::{Parser, Subcommand};
 use glob::{glob_with, MatchOptions};
 use log::{debug, error, info, Level, LevelFilter};
 use logger::SimpleLogger;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{error::Error, ffi::OsStr};
+use std::{error::Error};
 use tokio::fs;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -121,7 +122,10 @@ pub enum Commands {
     Update,
 }
 
-fn darius_is_jkt_test(entry: &walkdir::DirEntry) -> bool
+fn create_top_level_filter(
+    ignore_pattern : &Option<String>,
+    match_pattern : &Option<String>
+) -> impl Fn(&walkdir::DirEntry) ->bool
 {
     entry.metadata().map(|e|e.is_file()).unwrap_or(false) &&
     entry.file_name().to_str().map(|s| s.ends_with(".jkt")).unwrap_or(false)
@@ -198,20 +202,24 @@ async fn search_directory(
     return Ok(ret);
 }
 
+// TODO: Add ignore and filter out hidden etc
 async fn search_directory(
     path : &str,
     recursive : bool,
-    ignorePattern : &Option<String>,
-    matchPattern : &Option<String>
+    ignore_pattern : &Option<String>,
+    match_pattern : &Option<String>
 ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
     let mut ret : Vec<String> = Vec::new();
+    let entry_is_file = |e: &walkdir::DirEntry|{
+        e.metadata().map(|e|e.is_file()).unwrap_or(false)
+    };
+
     walkdir::WalkDir::new(&path)
         .max_depth(if recursive {::std::usize::MAX} else {0})
         .into_iter()
-        //.filter_entry(|e| //e.metadata().map(|e|e.is_file()).unwrap_or(false) &&
-        //               darius_is_jkt_test(e.file_name()))
+        .filter_entry(create_top_level_filter(&ignore_pattern,&match_pattern))
         .filter_map(|e| e.ok())
-        .filter(darius_is_jkt_test)
+        .filter(entry_is_file)
         .for_each(|e|match e.path().to_str() {
             Some(s) => {ret.push(String::from(s))},
             None => {},
@@ -220,7 +228,7 @@ async fn search_directory(
     return Ok(ret);
 }
 
-async fn get_files_v2(
+async fn get_files(
     paths: Vec<String>,
     recursive: bool,
 ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
@@ -229,7 +237,7 @@ async fn get_files_v2(
     for path in paths {
         let path_metadata = fs::metadata(&path).await?;
 
-        if (path_metadata.is_dir()) 
+        if path_metadata.is_dir()
         {
             results.append(search_directory(path.as_str(), recursive, &None, &None)
                 .await
@@ -307,7 +315,7 @@ async fn run_tests(
 
     let cli_tag_mode = if tags_or { TagMode::OR } else { TagMode::AND };
     let config = config::get_config().await;
-    let files = get_files_v2(cli_paths, recursive).await?;
+    let files = get_files(cli_paths, recursive).await?;
     let test_plurality = if files.len() != 1 { "s" } else { "" };
 
     info!(
