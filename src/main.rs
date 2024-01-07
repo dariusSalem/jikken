@@ -122,6 +122,22 @@ pub enum Commands {
     Update,
 }
 
+fn satisfies_ignore_and_match_filters(
+    ignore_regex: &Option<Regex>,
+    match_regex : &Option<Regex>,
+    file_name : &str
+) -> bool
+{
+    return match &match_regex {
+        Some(b) => {b.is_match(file_name)},
+        None => {true},
+    } &&
+    !match &ignore_regex {
+        Some(r) => {r.is_match(file_name)},
+        None => {false}
+    }
+}
+
 fn create_top_level_filter(
     ignore_pattern : &Option<String>,
     match_pattern : &Option<String>
