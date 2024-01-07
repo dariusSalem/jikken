@@ -258,8 +258,8 @@ async fn get_files(
             results.append(search_directory(path.as_str(), recursive, &None, &None)
                 .await
                 .unwrap_or(Vec::new())
-                .as_mut());
-            
+                .as_mut()
+            );
         }
         else
         {
