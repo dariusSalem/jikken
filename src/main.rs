@@ -16,6 +16,8 @@ use logger::SimpleLogger;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{error::Error};
+use std::fs::File;
+use tempfile::tempdir;
 use tokio::fs;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -138,6 +140,8 @@ fn satisfies_ignore_and_match_filters(
     }
 }
 
+// when we establish plumbing in args, throw error if parsing of regex fails
+// change this function to take Option<Regex>
 fn create_top_level_filter(
     ignore_pattern : &Option<String>,
     match_pattern : &Option<String>
@@ -218,7 +222,7 @@ async fn search_directory(
     return Ok(ret);
 }
 
-// TODO: Add ignore and filter out hidden etc
+// TODO: filter out hidden etc
 async fn search_directory(
     path : &str,
     recursive : bool,
@@ -231,7 +235,7 @@ async fn search_directory(
     };
 
     walkdir::WalkDir::new(&path)
-        .max_depth(if recursive {::std::usize::MAX} else {0})
+        .max_depth(if recursive {::std::usize::MAX} else {1})
         .into_iter()
         .filter_entry(create_top_level_filter(&ignore_pattern,&match_pattern))
         .filter_map(|e| e.ok())
