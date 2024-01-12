@@ -16,8 +16,6 @@ use logger::SimpleLogger;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use tokio::fs;
-#[cfg(test)]
-use {std::fs::File, tempfile::tempdir};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
