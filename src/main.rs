@@ -14,13 +14,10 @@ use glob::{glob_with, MatchOptions};
 use log::{debug, error, info, Level, LevelFilter};
 use logger::SimpleLogger;
 use serde::{Deserialize, Serialize};
-use std::{error::Error};
-#[cfg(test)]
-use {
-    std::fs::File,
-    tempfile::tempdir,
-};
+use std::error::Error;
 use tokio::fs;
+#[cfg(test)]
+use {std::fs::File, tempfile::tempdir};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -126,18 +123,18 @@ pub enum Commands {
     Update,
 }
 
-fn glob_walk(
-    glob_string: &String
-) -> Result<Vec<String>, Box<dyn Error + Send + Sync>>
-{
-    let mut ret : Vec<String> = Vec::new();
+fn glob_walk(glob_string: &String) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+    let mut ret: Vec<String> = Vec::new();
 
     for entry in glob_with(glob_string.as_str(), MatchOptions::default()).unwrap() {
         if let Ok(path) = entry {
             match path.to_str() {
                 Some(s) => {
-                    if s.ends_with(".jkt") {ret.push(String::from(s))}},
-                None => {},
+                    if s.ends_with(".jkt") {
+                        ret.push(String::from(s))
+                    }
+                }
+                None => {}
             }
         }
     }
@@ -145,15 +142,11 @@ fn glob_walk(
     return Ok(ret);
 }
 
-fn satisfies_potential_glob_filter(
-    glob_pattern : &Option<glob::Pattern>,
-    file_name : &str
-) -> bool
-{
+fn satisfies_potential_glob_filter(glob_pattern: &Option<glob::Pattern>, file_name: &str) -> bool {
     return match &glob_pattern {
-        Some(p) => {p.matches_with(file_name, MatchOptions::default())},
-        None => {true},
-    }
+        Some(p) => p.matches_with(file_name, MatchOptions::default()),
+        None => true,
+    };
 }
 
 // Consider how to approach feedback to user when supplied pattern
@@ -238,26 +231,24 @@ async fn search_directory(
 }
 
 async fn search_directory(
-    path : &str,
-    recursive : bool,
-    glob_pattern : Option<String>
+    path: &str,
+    recursive: bool,
+    glob_pattern: Option<String>,
 ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-    let mut ret : Vec<String> = Vec::new();
-    let entry_is_file = |e: &walkdir::DirEntry|{
-        e.metadata().map(|e|e.is_file()).unwrap_or(false)
-    };
+    let mut ret: Vec<String> = Vec::new();
+    let entry_is_file = |e: &walkdir::DirEntry| e.metadata().map(|e| e.is_file()).unwrap_or(false);
 
     walkdir::WalkDir::new(&path)
-        .max_depth(if recursive {::std::usize::MAX} else {1})
+        .max_depth(if recursive { ::std::usize::MAX } else { 1 })
         .into_iter()
         .filter_entry(create_top_level_filter(&glob_pattern))
         .filter_map(|e| e.ok())
         .filter(entry_is_file)
-        .for_each(|e|match e.path().to_str() {
-            Some(s) => {ret.push(String::from(s))},
-            None => {},
+        .for_each(|e| match e.path().to_str() {
+            Some(s) => ret.push(String::from(s)),
+            None => {}
         });
-    
+
     return Ok(ret);
 }
 
@@ -265,32 +256,31 @@ async fn get_files(
     paths: Vec<String>,
     recursive: bool,
 ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-    let mut results : Vec<String> = Vec::new();
+    let mut results: Vec<String> = Vec::new();
 
     for path in paths {
         let exists = fs::try_exists(&path).await.unwrap_or(false);
         let is_file = exists && fs::metadata(&path).await?.is_file();
-        let glob_pattern = if !exists {Some(String::from(path.as_str()))} else {None};
-    
+        let glob_pattern = if !exists {
+            Some(String::from(path.as_str()))
+        } else {
+            None
+        };
+
         if is_file {
             results.push(path);
-        }
-        else if !exists && !recursive {
-            results.append(
-                glob_walk(&path)
-                .unwrap_or(Vec::new())
-                .as_mut()
-            );
-        } 
-        else {
+        } else if !exists && !recursive {
+            results.append(glob_walk(&path).unwrap_or(Vec::new()).as_mut());
+        } else {
             results.append(
                 search_directory(
-                    if exists {path.as_str()} else {"."}, 
-                    recursive, 
-                    glob_pattern
-                ).await
-                 .unwrap_or(Vec::new())
-                 .as_mut()
+                    if exists { path.as_str() } else { "." },
+                    recursive,
+                    glob_pattern,
+                )
+                .await
+                .unwrap_or(Vec::new())
+                .as_mut(),
             );
         }
     }
@@ -300,7 +290,6 @@ async fn get_files(
     }
 
     Ok(results)
-
 }
 
 async fn get_files(
