@@ -15,8 +15,11 @@ use log::{debug, error, info, Level, LevelFilter};
 use logger::SimpleLogger;
 use serde::{Deserialize, Serialize};
 use std::{error::Error};
-use std::fs::File;
-use tempfile::tempdir;
+#[cfg(test)]
+use {
+    std::fs::File,
+    tempfile::tempdir,
+};
 use tokio::fs;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -143,20 +146,20 @@ fn glob_walk(
 }
 
 fn satisfies_potential_glob_filter(
-    match_pattern : &Option<glob::Pattern>,
+    glob_pattern : &Option<glob::Pattern>,
     file_name : &str
 ) -> bool
 {
-    return match &match_pattern {
-        Some(b) => {b.matches_with(file_name, MatchOptions::default())},
+    return match &glob_pattern {
+        Some(p) => {p.matches_with(file_name, MatchOptions::default())},
         None => {true},
     }
 }
 
-// when we establish plumbing in args, throw error if parsing of regex fails
-// change this function to take Option<Regex>
+// Consider how to approach feedback to user when supplied pattern
+// is invalid
 fn create_top_level_filter(
-    match_pattern : &Option<String>
+    glob_pattern : &Option<String>
 ) -> impl Fn(&walkdir::DirEntry) ->bool
 {
     entry.metadata().map(|e|e.is_file()).unwrap_or(false) &&
