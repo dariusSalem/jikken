@@ -234,7 +234,6 @@ async fn search_directory(
     return Ok(ret);
 }
 
-// TODO: filter out hidden etc
 async fn search_directory(
     path : &str,
     recursive : bool,
