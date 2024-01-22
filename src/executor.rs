@@ -26,6 +26,11 @@ pub struct Report {
     pub failed: u16,
 }
 
+pub struct TestResult {
+    pub test_name: String,
+    pub iteration_results: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>>   
+}
+
 trait ExecutionPolicy {
     fn name(&self) -> String;
     async fn execute(
@@ -132,24 +137,25 @@ async fn run_tests<T: ExecutionPolicy>(
     tests: Vec<test::Definition>,
     telemetry: Option<telemetry::Session>,
     mut exec_policy: T,
-) -> Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>> {
+) -> Vec<TestResult> {
     let total_count = tests.len();
-    let mut results: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>> =
-        Vec::new();
-
+    let mut results: Vec<TestResult> = Vec::new();
+    
     let mut state = State {
         variables: HashMap::new(),
     };
     let start_time = Instant::now();
 
     for (i, test) in tests.into_iter().enumerate() {
+        let mut test_result:  Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>> = Vec::new();
+        let test_name = test.name.clone().unwrap_or(format!("Test{}", i+1));
         for iteration in 0..test.iterate {
             info!(
                 "{} Test ({}\\{}) `{}` Iteration({}\\{})\n",
                 exec_policy.name(),
                 i + 1,
                 total_count,
-                test.name.clone().unwrap_or(format!("Test {}", i + 1)),
+                &test_name,
                 iteration + 1,
                 test.iterate,
             );
@@ -172,8 +178,14 @@ async fn run_tests<T: ExecutionPolicy>(
                 }
             }
 
-            results.push(result);
+            test_result.push(result);
         }
+        results.push(
+            TestResult { 
+                test_name: test_name, 
+                iteration_results: test_result
+            }
+        );
     }
 
     let runtime = start_time.elapsed().as_millis() as u32;
@@ -184,7 +196,6 @@ async fn run_tests<T: ExecutionPolicy>(
 
     return results;
 }
-//---------------------------------------
 
 struct State {
     variables: HashMap<String, String>,
@@ -458,7 +469,7 @@ pub async fn execute_tests(
         }
     }
 
-    let results: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>>;
+    let results: Vec<TestResult>;
 
     if mode_dryrun {
         results = run_tests(
@@ -482,6 +493,8 @@ pub async fn execute_tests(
     let run = results.len();
     let totals = results
         .into_iter()
+        .map(|tr| tr.iteration_results)
+        .flatten()
         .fold((0, 0), |(passed, failed), result| {
             let fail = result.is_err() || !result.unwrap().0;
             return (passed + 1 * (!fail as u16), failed + 1 * fail as u16);
