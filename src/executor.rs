@@ -16,6 +16,8 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::f32::consts::E;
+use std::fmt;
 use std::time::Instant;
 use std::vec;
 use url::Url;
@@ -29,6 +31,102 @@ pub struct Report {
 pub struct TestResult {
     pub test_name: String,
     pub iteration_results: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>>   
+}
+
+pub struct ExecutionResult {
+    //Elapsed Time?
+    //Start Time?
+    pub test_results: Vec<TestResult>
+}
+
+struct FormattedExecutionResult(String);
+
+impl fmt::Display for FormattedExecutionResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+trait ExecutionResultFormatter {
+    fn format(&self, res : &ExecutionResult) -> FormattedExecutionResult;
+}
+
+struct JunitResultFormatter;
+
+impl ExecutionResultFormatter for JunitResultFormatter {
+    fn format(&self, res : &ExecutionResult) -> FormattedExecutionResult{
+        let mut lines: Vec<String> = Vec::new();
+
+        lines.push(r#"<?xml version="1.0" encoding="UTF-8"?>"#.to_string());
+        lines.push(r#"<testsuites>"#.to_string());
+        for (test_num, test) in res.test_results.iter().enumerate(){
+            lines.push(format!(
+                r#"<testsuite name="{}">"#,
+                test.test_name
+            ));
+            for (it_num, it) in test.iteration_results.iter().enumerate(){
+                let test_iteration_name = 
+                    format!("{}.Iterations.{}",test.test_name.as_str(), it_num+1);
+                lines.push(format!(
+                    r#"<testsuite name="{}">"#,
+                    test_iteration_name.as_str(),
+                ));
+
+                match &it {
+                    Ok((_passed, stage_results)) => {
+                        for (stage_number, stage_result) in stage_results.iter().enumerate(){
+                            if stage_result.status == TestStatus::Passed {
+                                lines.push(
+                                    format!(
+                                        r#"<testcase name="stage_{}" classname="{}"/>"#,
+                                        stage_number + 1,
+                                        test_iteration_name.as_str()
+                                    )
+                                );
+                            }
+                            else{
+                                lines.push(
+                                    format!(
+                                        r#"<testcase name="stage_{}" classname="{}">"#,
+                                        stage_number + 1,
+                                        test_iteration_name.as_str()
+                                    )
+                                );
+
+                                lines.push(
+                                    r#"<failure message="Assertion error message" type="AssertionError"/>"#.to_string()
+                                );
+
+                                lines.push(r#"</testcase>"#.to_string());
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        lines.push(r#"<testcase name="testCase1" classname="Tests.Registration" />"#.to_string());
+                    }
+                }
+
+                lines.push("</testsuite>".to_string());
+            }
+            lines.push("</testsuite>".to_string());
+        }
+        lines.push("</testsuites>".to_string());
+
+        return FormattedExecutionResult{0: lines.join("\n")};
+    }
+}
+  
+trait ExecutionResultReporter {
+    fn report(&self, res : &FormattedExecutionResult);
+}
+
+struct ConsoleReporter;
+
+impl ExecutionResultReporter for ConsoleReporter{
+    fn report(&self, res : &FormattedExecutionResult)
+    {
+        print!("{res}\n");
+    }
 }
 
 trait ExecutionPolicy {
@@ -121,7 +219,7 @@ impl<T: ExecutionPolicy> ExecutionPolicy for FailurePolicy<T> {
         iteration: u32,
     ) -> Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>> {
         if self.failed && self.fail_fast {
-            return Err(Box::from("Abandoned due to failure policy".to_string()));
+            return Err(Box::from("Not ran due to failure policy".to_string()));
         }
         let ret = self
             .wrapped_policy
@@ -469,17 +567,15 @@ pub async fn execute_tests(
         }
     }
 
-    let results: Vec<TestResult>;
-
-    if mode_dryrun {
-        results = run_tests(
+    let results: Vec<TestResult> = if mode_dryrun{
+        run_tests(
             tests_to_run_with_dependencies,
             session,
             FailurePolicy::new(DryRunExecutionPolicy, config.settings.continue_on_failure),
         )
-        .await;
+        .await
     } else {
-        results = run_tests(
+        run_tests(
             tests_to_run_with_dependencies,
             session,
             FailurePolicy::new(
@@ -487,11 +583,18 @@ pub async fn execute_tests(
                 config.settings.continue_on_failure,
             ),
         )
-        .await;
-    }
+        .await
+    };
 
-    let run = results.len();
-    let totals = results
+    let execution_res = ExecutionResult{
+        test_results: results
+    };
+/* 
+    let summary = JunitResultFormatter.format(&execution_res);
+    ConsoleReporter.report(&summary);
+*/
+    let run = execution_res.test_results.len();
+    let totals = execution_res.test_results
         .into_iter()
         .map(|tr| tr.iteration_results)
         .flatten()
