@@ -53,6 +53,9 @@ trait ExecutionResultFormatter {
 
 struct JunitResultFormatter;
 
+//Find a way to
+//Treat it more like an accumulator for more efficient generation 
+//of multiple formats
 impl ExecutionResultFormatter for JunitResultFormatter {
     fn format(&self, res : &ExecutionResult) -> FormattedExecutionResult{
         let mut lines: Vec<String> = Vec::new();
@@ -102,7 +105,7 @@ impl ExecutionResultFormatter for JunitResultFormatter {
                         }
                     }
                     Err(_) => {
-                        lines.push(r#"<testcase name="testCase1" classname="Tests.Registration" />"#.to_string());
+                        lines.push(r#"<testcase name="Initial" classname="Initial" />"#.to_string());
                     }
                 }
 
