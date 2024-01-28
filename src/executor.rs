@@ -511,6 +511,78 @@ fn construct_test_execution_graph(
     return tests_to_run_with_dependencies;
 }
 
+
+fn schedule_impl(
+    graph: &HashMap<String, HashSet<String>>,
+    scheduled_nodes: &HashSet<String> 
+) -> HashSet<String>{
+    let mut ret: HashSet<String> = HashSet::new(); 
+
+	for (node, edges) in graph.iter()
+	{
+        let node_scheduled = scheduled_nodes.contains(node);
+		if !node_scheduled
+        {
+            if !edges.is_empty()
+            {
+                edges.iter().for_each(|n| _ = ret.remove(n));
+            }
+
+            ret.insert(node.clone());
+        }
+        else
+        {
+            edges.iter().filter(|n| !scheduled_nodes.contains(*n)).for_each(|n|_ = ret.insert(n.clone()));
+        }
+	}
+	return ret;
+}
+
+
+fn construct_test_execution_graph_v2(
+    mut tests_to_run: Vec<test::Definition>,
+    tests_to_ignore: Vec<test::Definition>,
+) {//-> Vec<test::Definition> {
+    let tests_by_id: HashMap<String, test::Definition> = tests_to_run
+        .clone()
+        .into_iter()
+        .chain(tests_to_ignore.into_iter())
+        .map(|td| (td.name.clone().unwrap_or(td.id.clone()), td))
+        .collect();
+
+    //Lets see if we can create a graph
+    //Nodes are IDs ; Directed edges imply ordering; i.e. A -> B; B depends on A
+    let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
+    tests_by_id.keys().into_iter().for_each(|k|_ = graph.insert(k.clone(), HashSet::new()));
+    tests_by_id
+        .iter()
+        .filter(|(id, def)| def.requires.is_some())
+        .map(|(id, def)|(def.requires.clone().unwrap(), id))
+        .for_each(|(start, end)| {
+            println!("EDGE ; {start}->{end}");
+            if let Some(edges) = graph.get_mut(&start){
+                edges.insert(end.clone());
+            }
+            else{
+                graph.insert(start, HashSet::from([end.clone()]));
+            }
+        });
+    
+    let mut jobs: Vec<HashSet<String>> = Vec::new();
+    let mut scheduled_nodes: HashSet<String> = HashSet::new();
+    while graph.len() != scheduled_nodes.len() 
+    {
+        let job = schedule_impl(&graph, &scheduled_nodes);
+        job.iter().for_each(|n|_ = scheduled_nodes.insert(n.clone()));
+        jobs.push(job);
+    }
+
+    for (count, job) in jobs.iter().enumerate(){
+        println!("Job {count}, Tests: {}", job.iter().fold("".to_string(), |acc, x| format!("{},{}", acc, x)));
+    }
+}
+
+
 pub async fn execute_tests(
     config: config::Config,
     files: Vec<String>,
@@ -540,6 +612,8 @@ pub async fn execute_tests(
     }
 
     trace!("determine test execution order based on dependency graph");
+
+    construct_test_execution_graph_v2(tests_to_run.clone(),tests_to_ignore.clone());
 
     let tests_to_run_with_dependencies =
         construct_test_execution_graph(tests_to_run, tests_to_ignore);
