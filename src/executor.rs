@@ -547,34 +547,24 @@ fn construct_test_execution_graph_v2(
         .iter()
         .map(|td|(td.name.clone().unwrap_or(td.id.clone()), td))
         .for_each(|(name, definition)| {
-            if definition.requires.is_none()
-            {
-                if !graph.contains_key(&name){
-                    graph.insert(name.clone(), HashSet::new());
-                    println!("INSERTING NEW NODE");
-                }
+            match definition.requires.as_ref() {
+                Some(req) => {
+                    if !tests_by_id.contains_key(req){
+                        return;
+                    }
 
-                return;
+                    if let Some(edges) = graph.get_mut(req){
+                        edges.insert(name.clone());
+                    }
+                    else{
+                        graph.insert(req.clone(), HashSet::from([name.clone()]));
+                    }        
+                },
+                None => {},
             }
             
-            let req : &String = definition.requires.as_ref().unwrap();
-            
-            if !tests_by_id.contains_key(req){
-                return;
-            }
-
             if !graph.contains_key(&name){
                 graph.insert(name.clone(), HashSet::new());
-                println!("INSERTING NEW NODE");
-            }
-
-            if let Some(edges) = graph.get_mut(req){
-                edges.insert(name.clone());
-                println!("INSERTING NEW EDGE INTOEXISTING");
-            }
-            else{
-                graph.insert(req.clone(), HashSet::from([name.clone()]));
-                println!("INSERTING NEW EDGE");
             }
         });
     
@@ -582,7 +572,6 @@ fn construct_test_execution_graph_v2(
     let mut scheduled_nodes: HashSet<String> = HashSet::new();
     while graph.len() != scheduled_nodes.len() 
     {
-        println!("HERE");
         let job = schedule_impl(&graph, &scheduled_nodes);
         job.iter().for_each(|n|_ = scheduled_nodes.insert(n.clone()));
         jobs.push(job);
