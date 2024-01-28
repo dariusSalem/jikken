@@ -6,6 +6,7 @@ use crate::telemetry;
 use crate::test;
 use crate::test::definition::ResponseDescriptor;
 use crate::test::http;
+use crate::test::Definition;
 use crate::test::{definition, validation};
 use crate::TagMode;
 use hyper::header::HeaderValue;
@@ -14,10 +15,8 @@ use hyper_tls::HttpsConnector;
 use log::{debug, error, info, trace};
 use serde::Serialize;
 use serde_json::Value;
-use std::borrow::BorrowMut;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::f32::consts::E;
 use std::fmt;
 use std::time::Instant;
 use std::vec;
@@ -63,7 +62,7 @@ impl ExecutionResultFormatter for JunitResultFormatter {
 
         lines.push(r#"<?xml version="1.0" encoding="UTF-8"?>"#.to_string());
         lines.push(r#"<testsuites>"#.to_string());
-        for (test_num, test) in res.test_results.iter().enumerate(){
+        for test in res.test_results.iter(){
             lines.push(format!(
                 r#"<testsuite name="{}">"#,
                 test.test_name
@@ -519,6 +518,7 @@ fn schedule_impl(
     let mut ignore: HashSet<String> = HashSet::new();
     ignore.clone_from(&scheduled_nodes);
 
+    //Is there a way to do in 1 iteration?
 	graph
         .iter()
         .filter(|(node, _)| !scheduled_nodes.contains(*node))
@@ -529,9 +529,9 @@ fn schedule_impl(
 }
 
 fn construct_test_execution_graph_v2(
-    mut tests_to_run: Vec<test::Definition>,
+    tests_to_run: Vec<test::Definition>,
     tests_to_ignore: Vec<test::Definition>,
-) -> Vec<HashSet<String>> {
+) -> Vec<Vec<Definition>> {
     let tests_by_id: HashMap<String, test::Definition> = tests_to_run
         .clone()
         .into_iter()
@@ -577,11 +577,19 @@ fn construct_test_execution_graph_v2(
         jobs.push(job);
     }
 
-    for (count, job) in jobs.iter().enumerate(){
-        println!("Job {count}, Tests: {}", job.iter().fold("".to_string(), |acc, x| format!("{},{}", acc, x)));
+    let job_definitions : Vec<Vec<Definition>> = 
+        jobs
+            .into_iter()
+            .map(|hs| hs.into_iter().map(|id| tests_by_id.get(&id).unwrap().clone()).collect::<Vec<Definition>>())
+            .collect();
+
+
+    for (count, job) in job_definitions.iter().enumerate(){
+        println!("Job {count}, Tests: {}", 
+            job.iter().fold("".to_string(), |acc, x| format!("{},{}", acc, x.name.as_ref().unwrap_or(&x.id))))
     }
 
-    return jobs;
+    return job_definitions;
 }
 
 
