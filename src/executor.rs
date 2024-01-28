@@ -14,7 +14,8 @@ use hyper_tls::HttpsConnector;
 use log::{debug, error, info, trace};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::borrow::BorrowMut;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::f32::consts::E;
 use std::fmt;
@@ -511,38 +512,26 @@ fn construct_test_execution_graph(
     return tests_to_run_with_dependencies;
 }
 
-
 fn schedule_impl(
     graph: &HashMap<String, HashSet<String>>,
     scheduled_nodes: &HashSet<String> 
 ) -> HashSet<String>{
-    let mut ret: HashSet<String> = HashSet::new(); 
+    let mut ignore: HashSet<String> = HashSet::new();
+    ignore.clone_from(&scheduled_nodes);
 
-	for (node, edges) in graph.iter()
-	{
-        let node_scheduled = scheduled_nodes.contains(node);
-		if !node_scheduled
-        {
-            if !edges.is_empty()
-            {
-                edges.iter().for_each(|n| _ = ret.remove(n));
-            }
-
-            ret.insert(node.clone());
-        }
-        else
-        {
-            edges.iter().filter(|n| !scheduled_nodes.contains(*n)).for_each(|n|_ = ret.insert(n.clone()));
-        }
-	}
-	return ret;
+	graph
+        .iter()
+        .filter(|(node, _)| !scheduled_nodes.contains(*node))
+        .for_each(|(_, edges)|{
+            edges.iter().for_each(|e|_ = ignore.insert(e.clone())); 
+        });
+    return graph.keys().filter(|s| !ignore.contains(*s)).map(|s|s.clone()).collect();
 }
-
 
 fn construct_test_execution_graph_v2(
     mut tests_to_run: Vec<test::Definition>,
     tests_to_ignore: Vec<test::Definition>,
-) {//-> Vec<test::Definition> {
+) -> Vec<HashSet<String>> {
     let tests_by_id: HashMap<String, test::Definition> = tests_to_run
         .clone()
         .into_iter()
@@ -550,21 +539,42 @@ fn construct_test_execution_graph_v2(
         .map(|td| (td.name.clone().unwrap_or(td.id.clone()), td))
         .collect();
 
-    //Lets see if we can create a graph
+    trace!("determine test execution order based on dependency graph");
+
     //Nodes are IDs ; Directed edges imply ordering; i.e. A -> B; B depends on A
     let mut graph: HashMap<String, HashSet<String>> = HashMap::new();
-    tests_by_id.keys().into_iter().for_each(|k|_ = graph.insert(k.clone(), HashSet::new()));
-    tests_by_id
+    tests_to_run
         .iter()
-        .filter(|(id, def)| def.requires.is_some())
-        .map(|(id, def)|(def.requires.clone().unwrap(), id))
-        .for_each(|(start, end)| {
-            println!("EDGE ; {start}->{end}");
-            if let Some(edges) = graph.get_mut(&start){
-                edges.insert(end.clone());
+        .map(|td|(td.name.clone().unwrap_or(td.id.clone()), td))
+        .for_each(|(name, definition)| {
+            if definition.requires.is_none()
+            {
+                if !graph.contains_key(&name){
+                    graph.insert(name.clone(), HashSet::new());
+                    println!("INSERTING NEW NODE");
+                }
+
+                return;
+            }
+            
+            let req : &String = definition.requires.as_ref().unwrap();
+            
+            if !tests_by_id.contains_key(req){
+                return;
+            }
+
+            if !graph.contains_key(&name){
+                graph.insert(name.clone(), HashSet::new());
+                println!("INSERTING NEW NODE");
+            }
+
+            if let Some(edges) = graph.get_mut(req){
+                edges.insert(name.clone());
+                println!("INSERTING NEW EDGE INTOEXISTING");
             }
             else{
-                graph.insert(start, HashSet::from([end.clone()]));
+                graph.insert(req.clone(), HashSet::from([name.clone()]));
+                println!("INSERTING NEW EDGE");
             }
         });
     
@@ -572,6 +582,7 @@ fn construct_test_execution_graph_v2(
     let mut scheduled_nodes: HashSet<String> = HashSet::new();
     while graph.len() != scheduled_nodes.len() 
     {
+        println!("HERE");
         let job = schedule_impl(&graph, &scheduled_nodes);
         job.iter().for_each(|n|_ = scheduled_nodes.insert(n.clone()));
         jobs.push(job);
@@ -580,6 +591,8 @@ fn construct_test_execution_graph_v2(
     for (count, job) in jobs.iter().enumerate(){
         println!("Job {count}, Tests: {}", job.iter().fold("".to_string(), |acc, x| format!("{},{}", acc, x)));
     }
+
+    return jobs;
 }
 
 
