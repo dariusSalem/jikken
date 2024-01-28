@@ -235,7 +235,7 @@ impl<T: ExecutionPolicy> ExecutionPolicy for FailurePolicy<T> {
 }
 
 async fn run_tests<T: ExecutionPolicy>(
-    tests: Vec<test::Definition>,
+    tests: Vec<Vec<test::Definition>>,
     telemetry: Option<telemetry::Session>,
     mut exec_policy: T,
 ) -> Vec<TestResult> {
@@ -247,7 +247,7 @@ async fn run_tests<T: ExecutionPolicy>(
     };
     let start_time = Instant::now();
 
-    for (i, test) in tests.into_iter().enumerate() {
+    for (i, test) in tests.into_iter().flatten().enumerate() {
         let mut test_result:  Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>> = Vec::new();
         let test_name = test.name.clone().unwrap_or(format!("Test{}", i+1));
         for iteration in 0..test.iterate {
@@ -476,41 +476,6 @@ fn ignored_due_to_tag_filter(
     }
 }
 
-fn construct_test_execution_graph(
-    mut tests_to_run: Vec<test::Definition>,
-    tests_to_ignore: Vec<test::Definition>,
-) -> Vec<test::Definition> {
-    let tests_by_id: HashMap<String, test::Definition> = tests_to_run
-        .clone()
-        .into_iter()
-        .chain(tests_to_ignore.into_iter())
-        .map(|td| (td.id.clone(), td))
-        .collect();
-
-    tests_to_run.sort_by(|a, b| a.name.partial_cmp(&b.name).unwrap());
-
-    let mut duplicate_filter: HashSet<String> = HashSet::new();
-    let mut tests_to_run_with_dependencies: Vec<test::Definition> = Vec::new();
-
-    trace!("determine test execution order based on dependency graph");
-
-    for td in tests_to_run.iter() {
-        if let Some(req) = &td.requires {
-            if tests_by_id.contains_key(req) && !duplicate_filter.contains(req) {
-                duplicate_filter.insert(req.clone());
-                tests_to_run_with_dependencies.push(tests_by_id.get(req).unwrap().clone())
-            }
-        }
-
-        if !duplicate_filter.contains(&td.id) {
-            duplicate_filter.insert(td.id.clone());
-            tests_to_run_with_dependencies.push(td.clone());
-        }
-    }
-
-    return tests_to_run_with_dependencies;
-}
-
 fn schedule_impl(
     graph: &HashMap<String, HashSet<String>>,
     scheduled_nodes: &HashSet<String> 
@@ -585,7 +550,7 @@ fn construct_test_execution_graph_v2(
 
 
     for (count, job) in job_definitions.iter().enumerate(){
-        println!("Job {count}, Tests: {}", 
+        trace!("Job {count}, Tests: {}", 
             job.iter().fold("".to_string(), |acc, x| format!("{},{}", acc, x.name.as_ref().unwrap_or(&x.id))))
     }
 
@@ -623,19 +588,20 @@ pub async fn execute_tests(
 
     trace!("determine test execution order based on dependency graph");
 
-    construct_test_execution_graph_v2(tests_to_run.clone(),tests_to_ignore.clone());
-
     let tests_to_run_with_dependencies =
-        construct_test_execution_graph(tests_to_run, tests_to_ignore);
+        construct_test_execution_graph_v2(tests_to_run.clone(),tests_to_ignore.clone());
+    
+    let total_tests = 
+        tests_to_run_with_dependencies.iter().fold(0, |acc, x| acc + x.len()); 
 
-    let mut session: Option<telemetry::Session> = None;
+        let mut session: Option<telemetry::Session> = None;
 
     if !mode_dryrun {
         if let Some(token) = &config.settings.api_key {
             if let Ok(t) = uuid::Uuid::parse_str(token) {
                 match telemetry::create_session(
                     t,
-                    tests_to_run_with_dependencies.len() as u32,
+                    total_tests as u32,
                     cli_args,
                     &config,
                 )
