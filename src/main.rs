@@ -15,7 +15,6 @@ use log::{debug, error, info, Level, LevelFilter};
 use logger::SimpleLogger;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::path::Path;
 use tokio::fs;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");

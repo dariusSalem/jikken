@@ -16,7 +16,6 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::f32::consts::E;
 use std::fmt;
 use std::time::Instant;
 use std::vec;
@@ -62,7 +61,7 @@ impl ExecutionResultFormatter for JunitResultFormatter {
 
         lines.push(r#"<?xml version="1.0" encoding="UTF-8"?>"#.to_string());
         lines.push(r#"<testsuites>"#.to_string());
-        for (test_num, test) in res.test_results.iter().enumerate() {
+        for (_test_num, test) in res.test_results.iter().enumerate() {
             lines.push(format!(r#"<testsuite name="{}">"#, test.test_name));
             for (it_num, it) in test.iteration_results.iter().enumerate() {
                 let test_iteration_name =
