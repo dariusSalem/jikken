@@ -164,7 +164,7 @@ fn create_top_level_filter(glob_pattern: &Option<String>) -> impl Fn(&walkdir::D
                 (e.file_type().is_file()
                     && s.ends_with(".jkt")
                     && satisfies_potential_glob_filter(&pattern, &s))
-                    || ( e.file_type().is_dir() && !jikken_ignore_exists_in_dir(e) )
+                    || (e.file_type().is_dir() && !jikken_ignore_exists_in_dir(e))
             })
             .unwrap_or(false)
     };
@@ -388,7 +388,7 @@ mod tests {
                 "my_test.jkt",
                 "something_else",
                 "my_test_2.jkt",
-                ".jikkenignore"
+                ".jikkenignore",
             ]
             .iter()
             .map(|f| File::create(tmp_path.join(f)).unwrap())

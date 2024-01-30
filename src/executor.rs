@@ -30,13 +30,13 @@ pub struct Report {
 
 pub struct TestResult {
     pub test_name: String,
-    pub iteration_results: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>>   
+    pub iteration_results: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>>,
 }
 
 pub struct ExecutionResult {
     //Elapsed Time?
     //Start Time?
-    pub test_results: Vec<TestResult>
+    pub test_results: Vec<TestResult>,
 }
 
 struct FormattedExecutionResult(String);
@@ -48,28 +48,25 @@ impl fmt::Display for FormattedExecutionResult {
 }
 
 trait ExecutionResultFormatter {
-    fn format(&self, res : &ExecutionResult) -> FormattedExecutionResult;
+    fn format(&self, res: &ExecutionResult) -> FormattedExecutionResult;
 }
 
 struct JunitResultFormatter;
 
 //Find a way to
-//Treat it more like an accumulator for more efficient generation 
+//Treat it more like an accumulator for more efficient generation
 //of multiple formats
 impl ExecutionResultFormatter for JunitResultFormatter {
-    fn format(&self, res : &ExecutionResult) -> FormattedExecutionResult{
+    fn format(&self, res: &ExecutionResult) -> FormattedExecutionResult {
         let mut lines: Vec<String> = Vec::new();
 
         lines.push(r#"<?xml version="1.0" encoding="UTF-8"?>"#.to_string());
         lines.push(r#"<testsuites>"#.to_string());
-        for (test_num, test) in res.test_results.iter().enumerate(){
-            lines.push(format!(
-                r#"<testsuite name="{}">"#,
-                test.test_name
-            ));
-            for (it_num, it) in test.iteration_results.iter().enumerate(){
-                let test_iteration_name = 
-                    format!("{}.Iterations.{}",test.test_name.as_str(), it_num+1);
+        for (test_num, test) in res.test_results.iter().enumerate() {
+            lines.push(format!(r#"<testsuite name="{}">"#, test.test_name));
+            for (it_num, it) in test.iteration_results.iter().enumerate() {
+                let test_iteration_name =
+                    format!("{}.Iterations.{}", test.test_name.as_str(), it_num + 1);
                 lines.push(format!(
                     r#"<testsuite name="{}">"#,
                     test_iteration_name.as_str(),
@@ -77,24 +74,19 @@ impl ExecutionResultFormatter for JunitResultFormatter {
 
                 match &it {
                     Ok((_passed, stage_results)) => {
-                        for (stage_number, stage_result) in stage_results.iter().enumerate(){
+                        for (stage_number, stage_result) in stage_results.iter().enumerate() {
                             if stage_result.status == TestStatus::Passed {
-                                lines.push(
-                                    format!(
-                                        r#"<testcase name="stage_{}" classname="{}"/>"#,
-                                        stage_number + 1,
-                                        test_iteration_name.as_str()
-                                    )
-                                );
-                            }
-                            else{
-                                lines.push(
-                                    format!(
-                                        r#"<testcase name="stage_{}" classname="{}">"#,
-                                        stage_number + 1,
-                                        test_iteration_name.as_str()
-                                    )
-                                );
+                                lines.push(format!(
+                                    r#"<testcase name="stage_{}" classname="{}"/>"#,
+                                    stage_number + 1,
+                                    test_iteration_name.as_str()
+                                ));
+                            } else {
+                                lines.push(format!(
+                                    r#"<testcase name="stage_{}" classname="{}">"#,
+                                    stage_number + 1,
+                                    test_iteration_name.as_str()
+                                ));
 
                                 lines.push(
                                     r#"<failure message="Assertion error message" type="AssertionError"/>"#.to_string()
@@ -105,7 +97,8 @@ impl ExecutionResultFormatter for JunitResultFormatter {
                         }
                     }
                     Err(_) => {
-                        lines.push(r#"<testcase name="Initial" classname="Initial" />"#.to_string());
+                        lines
+                            .push(r#"<testcase name="Initial" classname="Initial" />"#.to_string());
                     }
                 }
 
@@ -115,19 +108,20 @@ impl ExecutionResultFormatter for JunitResultFormatter {
         }
         lines.push("</testsuites>".to_string());
 
-        return FormattedExecutionResult{0: lines.join("\n")};
+        return FormattedExecutionResult {
+            0: lines.join("\n"),
+        };
     }
 }
-  
+
 trait ExecutionResultReporter {
-    fn report(&self, res : &FormattedExecutionResult);
+    fn report(&self, res: &FormattedExecutionResult);
 }
 
 struct ConsoleReporter;
 
-impl ExecutionResultReporter for ConsoleReporter{
-    fn report(&self, res : &FormattedExecutionResult)
-    {
+impl ExecutionResultReporter for ConsoleReporter {
+    fn report(&self, res: &FormattedExecutionResult) {
         print!("{res}\n");
     }
 }
@@ -241,15 +235,16 @@ async fn run_tests<T: ExecutionPolicy>(
 ) -> Vec<TestResult> {
     let total_count = tests.len();
     let mut results: Vec<TestResult> = Vec::new();
-    
+
     let mut state = State {
         variables: HashMap::new(),
     };
     let start_time = Instant::now();
 
     for (i, test) in tests.into_iter().enumerate() {
-        let mut test_result:  Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>> = Vec::new();
-        let test_name = test.name.clone().unwrap_or(format!("Test{}", i+1));
+        let mut test_result: Vec<Result<(bool, Vec<StageResult>), Box<dyn Error + Send + Sync>>> =
+            Vec::new();
+        let test_name = test.name.clone().unwrap_or(format!("Test{}", i + 1));
         for iteration in 0..test.iterate {
             info!(
                 "{} Test ({}\\{}) `{}` Iteration({}\\{})\n",
@@ -281,12 +276,10 @@ async fn run_tests<T: ExecutionPolicy>(
 
             test_result.push(result);
         }
-        results.push(
-            TestResult { 
-                test_name: test_name, 
-                iteration_results: test_result
-            }
-        );
+        results.push(TestResult {
+            test_name: test_name,
+            iteration_results: test_result,
+        });
     }
 
     let runtime = start_time.elapsed().as_millis() as u32;
@@ -570,7 +563,7 @@ pub async fn execute_tests(
         }
     }
 
-    let results: Vec<TestResult> = if mode_dryrun{
+    let results: Vec<TestResult> = if mode_dryrun {
         run_tests(
             tests_to_run_with_dependencies,
             session,
@@ -589,15 +582,16 @@ pub async fn execute_tests(
         .await
     };
 
-    let execution_res = ExecutionResult{
-        test_results: results
+    let execution_res = ExecutionResult {
+        test_results: results,
     };
-/* 
-    let summary = JunitResultFormatter.format(&execution_res);
-    ConsoleReporter.report(&summary);
-*/
+    /*
+        let summary = JunitResultFormatter.format(&execution_res);
+        ConsoleReporter.report(&summary);
+    */
     let run = execution_res.test_results.len();
-    let totals = execution_res.test_results
+    let totals = execution_res
+        .test_results
         .into_iter()
         .map(|tr| tr.iteration_results)
         .flatten()
