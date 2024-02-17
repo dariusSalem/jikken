@@ -1255,58 +1255,54 @@ async fn validate_stage(
 }
 
 fn http_request_from_test_spec(
-    variables: &HashMap<String,String>,
+    variables: &HashMap<String, String>,
     resolved_request: test::definition::ResolvedRequest,
-)-> Result<Request<Body>, Box<dyn Error + Send + Sync>> {
-            
-    let vars : Vec<(String,&String)> = 
-        variables.iter().map(
-            |(k,v)| (format!("${{{}}}", k) , v) 
-        ).collect();
-    
+) -> Result<Request<Body>, Box<dyn Error + Send + Sync>> {
+    let vars: Vec<(String, &String)> = variables
+        .iter()
+        .map(|(k, v)| (format!("${{{}}}", k), v))
+        .collect();
+
     //Where all can we resolve variables? May be worth making an external function
-    let variable_resolver = |variable : String| -> String{
-        vars.iter().fold(
-            variable,
-            |acc, (var_name, var_value)|acc.replace(var_name, *var_value)
-        )
+    let variable_resolver = |variable: String| -> String {
+        vars.iter().fold(variable, |acc, (var_name, var_value)| {
+            acc.replace(var_name, *var_value)
+        })
     };
-    
-    return  Url::parse(&resolved_request.url)
+
+    return Url::parse(&resolved_request.url)
         .map_err(|e| Box::<dyn Error + Send + Sync>::from(format!("invalid request url: {}", e)))
-        .and_then(|url|{
+        .and_then(|url| {
             let builder = Request::builder()
                 .uri(url.as_str())
                 .method(resolved_request.method.to_hyper())
                 .header("Content-Type", HeaderValue::from_static("application/json"));
-            return 
-                resolved_request.headers.iter()
-                    .fold(builder,
-                        |builder, (k, v)|
-                                builder.header( 
-                                    k, 
-                                    variable_resolver(v.clone())
-                                )
-                    )     
-                    .body(
-                            resolved_request.body.map(
-                                |b|Body::from(serde_json::to_string(&b).unwrap())
-                            ).unwrap_or(Body::empty())
-                    )
-                    .map_err(|e|Box::from(format!("bad request result: {}", e)));
+            return resolved_request
+                .headers
+                .iter()
+                .fold(builder, |builder, (k, v)| {
+                    builder.header(k, variable_resolver(v.clone()))
+                })
+                .body(
+                    resolved_request
+                        .body
+                        .map(|b| Body::from(serde_json::to_string(&b).unwrap()))
+                        .unwrap_or(Body::empty()),
+                )
+                .map_err(|e| Box::from(format!("bad request result: {}", e)));
         });
 }
 
 async fn process_request(
     state: &State,
     resolved_request: test::definition::ResolvedRequest,
-)-> Result<hyper::Response<Body>, Box<dyn Error + Send + Sync>> {
+) -> Result<hyper::Response<Body>, Box<dyn Error + Send + Sync>> {
     let client = Client::builder().build::<_, Body>(HttpsConnector::new());
     debug!("url({})", resolved_request.url);
 
     return match http_request_from_test_spec(&state.variables, resolved_request) {
         Ok(req) => Ok(client.request(req).await?),
-        Err(error) => Err(Box::from(format!("bad request result: {}", error)))
+        Err(error) => Err(Box::from(format!("bad request result: {}", error))),
     };
 }
 
@@ -1590,41 +1586,90 @@ fn validate_dry_run(
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-
     use self::test::definition::ResolvedRequest;
+    use hyper::Response;
+    use std::any::Any;
 
     use super::*;
     use adjacent_pair_iterator::AdjacentPairIterator;
-    use hyper::Method;
+    use hyper::StatusCode;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn from_bad_response() {
+        let rep = Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::empty());
+
+        let result = ResultData::from_response(rep.unwrap()).await;
+        assert_eq!(400, result.as_ref().unwrap().status);
+    }
+
+    #[tokio::test]
+    async fn from_response_object_body() {
+        let val = json!({
+            "name": "John Doe",
+            "age": 43
+        });
+
+        let rep = Response::builder()
+            .status(StatusCode::OK)
+            .body(Body::from(val.to_string()));
+
+        let result = ResultData::from_response(rep.unwrap()).await;
+        assert_eq!(200, result.as_ref().unwrap().status);
+        assert_eq!(val.to_string(), result.as_ref().unwrap().body.to_string());
+    }
+
+    #[tokio::test]
+    async fn from_response_string_body() {
+        let rep = Response::builder()
+            .status(StatusCode::OK)
+            //notice, serde will only capture it if its quoted
+            //could we detect this and possibly account for it?
+            .body(Body::from("\"ok;\""));
+
+        let result = ResultData::from_response(rep.unwrap()).await;
+        assert_eq!(200, result.as_ref().unwrap().status);
+        assert_eq!("ok;", result.as_ref().unwrap().body.as_str().unwrap());
+    }
+
+    #[tokio::test]
+    async fn from_response_empty_body() {
+        let rep = Response::builder()
+            .header("foo", "bar")
+            .status(StatusCode::OK)
+            .body(Body::empty());
+
+        let result = ResultData::from_response(rep.unwrap()).await;
+        assert_eq!(200, result.as_ref().unwrap().status);
+        assert_eq!(1, result.as_ref().unwrap().headers.len());
+        assert!(result.as_ref().unwrap().body.is_null());
+    }
 
     #[test]
-    fn http_request_from_test_spec_post(){
+    fn http_request_from_test_spec_post() {
         let mut vars = HashMap::new();
         vars.insert("MY_VARIABLE".to_string(), "foo".to_string());
         vars.insert("MY_VARIABLE2".to_string(), "bar".to_string());
-        
-        let body = serde_json::json!({ "an": "object" });
-        let res = 
-            http_request_from_test_spec(
-                &vars, 
-                ResolvedRequest::new(
-                    "https://google.com".to_string(), 
-                    http::Verb::Post.as_method(),
-                    vec![("header".to_string(),"${MY_VARIABLE}-${MY_VARIABLE2}".to_string())], 
-                    Some(body)
-                )
-            );
-        let expected : Request<()> = Request::default(); 
-        assert_ne!( 
-             expected.type_id(),
-            res.as_ref().unwrap().body().type_id()
-        );
 
-        assert_eq!(
-            2,
-            res.as_ref().unwrap().headers().len()
+        let body = serde_json::json!({ "an": "object" });
+        let res = http_request_from_test_spec(
+            &vars,
+            ResolvedRequest::new(
+                "https://google.com".to_string(),
+                http::Verb::Post.as_method(),
+                vec![(
+                    "header".to_string(),
+                    "${MY_VARIABLE}-${MY_VARIABLE2}".to_string(),
+                )],
+                Some(body),
+            ),
         );
+        let expected: Request<()> = Request::default();
+        assert_ne!(expected.type_id(), res.as_ref().unwrap().body().type_id());
+
+        assert_eq!(2, res.as_ref().unwrap().headers().len());
 
         assert_eq!(
             "foo-bar",
@@ -1634,7 +1679,7 @@ mod tests {
 
     fn construct_definition_for_dependency_graph(
         name: &str,
-        requires: Option<String>
+        requires: Option<String>,
     ) -> test::Definition {
         test::Definition {
             name: Some(name.to_string()),
@@ -1657,66 +1702,66 @@ mod tests {
 
     #[test]
     fn no_dependencies_is_one_execution_node() {
-        let defs  = 
-            vec!["A", "B","C", "D"]
-                .into_iter()
-                .map(|name|construct_definition_for_dependency_graph(name, None))
-                .collect();
-        
-        let actual = 
-            construct_test_execution_graph_v2(defs, vec![construct_definition_for_dependency_graph("E", None)]); 
+        let defs = vec!["A", "B", "C", "D"]
+            .into_iter()
+            .map(|name| construct_definition_for_dependency_graph(name, None))
+            .collect();
+
+        let actual = construct_test_execution_graph_v2(
+            defs,
+            vec![construct_definition_for_dependency_graph("E", None)],
+        );
         assert_eq!(1, actual.len());
         assert_eq!(4, actual.get(0).unwrap().len());
     }
 
     #[test]
     fn one_root_dependency_is_two_execution_nodes() {
-        let mut defs = 
-            vec!["A", "B","C", "D"]
-                .into_iter()
-                .map(|name|construct_definition_for_dependency_graph(name, Some("Parent".to_string())))
-                .collect::<Vec<Definition>>();
-        
+        let mut defs = vec!["A", "B", "C", "D"]
+            .into_iter()
+            .map(|name| construct_definition_for_dependency_graph(name, Some("Parent".to_string())))
+            .collect::<Vec<Definition>>();
+
         defs.push(construct_definition_for_dependency_graph("Parent", None));
-        
-        let actual = 
-            construct_test_execution_graph_v2(
-                defs, 
-                vec![construct_definition_for_dependency_graph("E", None)]
-            ); 
-        
+
+        let actual = construct_test_execution_graph_v2(
+            defs,
+            vec![construct_definition_for_dependency_graph("E", None)],
+        );
+
         assert_eq!(2, actual.len());
         assert_eq!(1, actual.get(0).unwrap().len());
-        assert_eq!("Parent", actual.get(0).unwrap().get(0).unwrap().name.clone().unwrap());
+        assert_eq!(
+            "Parent",
+            actual.get(0).unwrap().get(0).unwrap().name.clone().unwrap()
+        );
         assert_eq!(4, actual.get(1).unwrap().len());
     }
 
     #[test]
     fn straight_line_dependency_is_node_chain() {
-        let defs = 
-            vec!["A", "B","C", "D"]
-                .adjacent_pairs()
-                .into_iter()
-                .enumerate()
-                .map(|(pos, (fst, snd))| {
-                    let mut res : Vec<Definition> = Vec::new();
-                    if pos == 0 {
-                        res.push(construct_definition_for_dependency_graph(fst, None));
-                    }
-                    
-                    res.push(construct_definition_for_dependency_graph(snd, Some(fst.to_string())));
-                    
-                    return res;
-                })
-                .flatten()
-                .collect::<Vec<Definition>>();
+        let defs = vec!["A", "B", "C", "D"]
+            .adjacent_pairs()
+            .into_iter()
+            .enumerate()
+            .map(|(pos, (fst, snd))| {
+                let mut res: Vec<Definition> = Vec::new();
+                if pos == 0 {
+                    res.push(construct_definition_for_dependency_graph(fst, None));
+                }
 
-        let actual = 
-            construct_test_execution_graph_v2(
-                defs, 
-                Vec::new()
-            ); 
-        
+                res.push(construct_definition_for_dependency_graph(
+                    snd,
+                    Some(fst.to_string()),
+                ));
+
+                return res;
+            })
+            .flatten()
+            .collect::<Vec<Definition>>();
+
+        let actual = construct_test_execution_graph_v2(defs, Vec::new());
+
         assert_eq!(4, actual.len());
     }
 
