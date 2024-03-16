@@ -13,6 +13,9 @@ Function RefreshShellIcons
   (${SHCNE_ASSOCCHANGED}, ${SHCNF_IDLIST}, 0, 0)'
 FunctionEnd
 
+Icon "favicon.ico"
+Name "Jikken"
+
 Section
 
 SetOutPath $INSTDIR
