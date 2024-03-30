@@ -6,6 +6,42 @@ use std::error::Error;
 use std::fs;
 use std::hash::{Hash, Hasher};
 
+#[derive(Serialize, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
+enum Specification<T: PartialOrd> {
+    //Idea here was regex matching;
+    //need to think more about how to discriminate type
+    //Pattern { pattern: String },
+    Value { val: T },
+    Range { min: T, max: T },
+    OneOf { one_of: Vec<T> },
+    NoneOf { none_of: Vec<T> },
+    AllOf { all_of: Vec<T> },
+}
+
+#[derive(Serialize, Debug, Deserialize)]
+#[serde(untagged)]
+enum ValidSpecifications {
+    StringSpecification(Specification<String>),
+    IntSpecification(Specification<i32>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpecificationType {
+    Int,
+    Float,
+    String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnvalidatedSpecification {
+    #[serde(rename = "type")]
+    pub type_id: SpecificationType,
+    pub spec: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedRequest {
     pub method: Option<http::Verb>,
@@ -156,5 +192,206 @@ pub fn load(filename: &str) -> Result<test::File, Box<dyn Error + Send + Sync>> 
             error!("unable to parse file ({}) data: {}", filename, e);
             Err(Box::from(e))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn get_example_file_path(p: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("example_tests")
+            .join(p)
+    }
+
+    //We use untagged serialization for a smoother user experience.
+    //Maintain these tests to make sure serde's in-order, best-effort attemps
+    //behave as expected
+    #[test]
+    fn verify_int_oneof_spec_serde_properly() {
+        let foo = ValidSpecifications::IntSpecification(Specification::OneOf {
+            one_of: vec![200, 201],
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"one_of":[200,201]}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::IntSpecification(s) => match s {
+                Specification::OneOf { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_int_noneof_spec_serde_properly() {
+        let foo = ValidSpecifications::IntSpecification(Specification::NoneOf {
+            none_of: vec![200, 201],
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"none_of":[200,201]}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::IntSpecification(s) => match s {
+                Specification::NoneOf { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_int_allof_spec_serde_properly() {
+        let foo = ValidSpecifications::IntSpecification(Specification::AllOf {
+            all_of: vec![200, 201],
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"all_of":[200,201]}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::IntSpecification(s) => match s {
+                Specification::AllOf { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_string_oneof_spec_serde_properly() {
+        let foo = ValidSpecifications::StringSpecification(Specification::OneOf {
+            one_of: vec!["200".to_string(), "201".to_string()],
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"one_of":["200","201"]}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::StringSpecification(s) => match s {
+                Specification::OneOf { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_string_noneof_spec_serde_properly() {
+        let foo = ValidSpecifications::StringSpecification(Specification::NoneOf {
+            none_of: vec!["200".to_string(), "201".to_string()],
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"none_of":["200","201"]}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::StringSpecification(s) => match s {
+                Specification::NoneOf { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_string_allof_spec_serde_properly() {
+        let foo = ValidSpecifications::StringSpecification(Specification::AllOf {
+            all_of: vec!["200".to_string(), "201".to_string()],
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"all_of":["200","201"]}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::StringSpecification(s) => match s {
+                Specification::AllOf { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_int_value_spec_serde_properly() {
+        let foo = ValidSpecifications::IntSpecification(Specification::Value { val: 12 });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"val":12}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::IntSpecification(s) => match s {
+                Specification::Value { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_int_range_spec_serde_properly() {
+        let foo = ValidSpecifications::IntSpecification(Specification::Range { min: 12, max: 100 });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"min":12,"max":100}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::IntSpecification(s) => match s {
+                Specification::Range { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_string_range_spec_serde_properly() {
+        let foo = ValidSpecifications::StringSpecification(Specification::Range {
+            min: "aa".to_string(),
+            max: "bb".to_string(),
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"min":"aa","max":"bb"}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::StringSpecification(s) => match s {
+                Specification::Range { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
+    }
+
+    #[test]
+    fn verify_string_value_spec_serde_properly() {
+        let foo = ValidSpecifications::StringSpecification(Specification::Value {
+            val: "foo".to_string(),
+        });
+        let output = format!("{}", serde_json::to_string(&foo).unwrap());
+        assert_eq!(r#"{"val":"foo"}"#, output.as_str());
+        let bar: ValidSpecifications = serde_json::from_str(output.as_str()).unwrap();
+        let expected = match bar {
+            ValidSpecifications::StringSpecification(s) => match s {
+                Specification::Value { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+
+        assert!(expected);
     }
 }
