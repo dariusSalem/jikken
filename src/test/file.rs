@@ -2,6 +2,7 @@ use crate::test;
 use crate::test::{definition, http, variable};
 use log::error;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -14,6 +15,7 @@ enum Specification<T: PartialOrd> {
     //need to think more about how to discriminate type
     //Pattern { pattern: String },
     Value { val: T },
+    //Break range into 2 things
     Range { min: T, max: T },
     OneOf { one_of: Vec<T> },
     NoneOf { none_of: Vec<T> },
@@ -21,25 +23,108 @@ enum Specification<T: PartialOrd> {
 }
 
 #[derive(Serialize, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SpecificationV2<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub val: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub one_of: Option<Vec<T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub none_of: Option<Vec<T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub all_of: Option<Vec<T>>,
+}
+
+#[derive(Serialize, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
+enum ValidSpecificationsV2 {
+    StringSpecification(SpecificationV2<String>),
+    IntSpecification(SpecificationV2<i32>),
+}
+
+/*
+    v2.0
+    #[derive(Serialize, Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    #[serde(untagged)]
+    enum DatumSchema {
+        Scalar {
+            type_name: String,
+            #[serde(flatten)]
+            specification: Option<ValidSpecificationsV2>,
+        },
+        ListSchema {
+            type_name: String,
+            schema: Box<DatumSchema>,
+        },
+        ObjectSchema {
+            type_name: String,
+            schema: BTreeMap<String, DatumSchema>,
+        },
+    }
+
+    Yields  stuff like
+    {"_jk_schema":{"cars":{"type_name":"list","schema":{"type_name":"string"}},"name":{"type_name":"string","oneOf":["foo","bar"]}}}
+
+    Pretty nice. However
+*/
+
+//v2.1
+#[derive(Serialize, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(tag = "type")]
+enum DatumSchema {
+    Float {
+        #[serde(flatten)]
+        specification: Option<SpecificationV2<f32>>,
+    },
+    Int {
+        #[serde(flatten)]
+        specification: Option<SpecificationV2<i32>>,
+    },
+    String {
+        #[serde(flatten)]
+        specification: Option<SpecificationV2<String>>,
+    },
+    List {
+        schema: Box<DatumSchema>,
+    },
+    Object {
+        schema: BTreeMap<String, DatumSchema>,
+    },
+}
+
+#[derive(Serialize, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocumentSchema {
+    #[serde(rename = "_jk_schema")]
+    pub schema: BTreeMap<String, DatumSchema>,
+}
+
+/*
+  How do you support all kinds of json
+        response:
+            body:
+            schema:
+
+    struct
+
+enum Body {
+    Schema { schema: }
+    JsonBody { serde_json::Value }
+}
+*/
+
+#[derive(Serialize, Debug, Deserialize)]
 #[serde(untagged)]
 enum ValidSpecifications {
     StringSpecification(Specification<String>),
     IntSpecification(Specification<i32>),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SpecificationType {
-    Int,
-    Float,
-    String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UnvalidatedSpecification {
-    #[serde(rename = "type")]
-    pub type_id: SpecificationType,
-    pub spec: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,9 +289,76 @@ mod tests {
             .join("example_tests")
             .join(p)
     }
-
+    /*
+        This isv2.0
+    #[test]
+    fn build() {
+        let mut schema = BTreeMap::<String, DatumSchema>::new();
+        schema.insert(
+            "name".to_string(),
+            DatumSchema::Scalar {
+                type_name: "string".to_string(),
+                specification: Some(ValidSpecificationsV2::StringSpecification(
+                    SpecificationV2 {
+                        val: None,
+                        min: None,
+                        max: None,
+                        one_of: Some(vec!["foo".to_string(), "bar".to_string()]),
+                        none_of: None,
+                        all_of: None,
+                    },
+                )),
+            },
+        );
+        schema.insert(
+            "cars".to_string(),
+            DatumSchema::ListSchema {
+                type_name: "list".to_string(),
+                schema: Box::from(DatumSchema::Scalar {
+                    type_name: "string".to_string(),
+                    specification: None,
+                }),
+            },
+        );
+        let d = DocumentSchema { schema };
+        println!("{}", serde_json::to_string(&d).unwrap());
+        let output = format!("{}", serde_json::to_string(&d).unwrap());
+        let f: DocumentSchema = serde_json::from_str(&output).unwrap();
+        println!("{}", serde_json::to_string(&f).unwrap())
+    }
+     */
+    #[test]
+    fn build() {
+        let mut schema = BTreeMap::<String, DatumSchema>::new();
+        schema.insert(
+            "name".to_string(),
+            DatumSchema::String {
+                specification: Some(SpecificationV2 {
+                    val: None,
+                    min: None,
+                    max: None,
+                    one_of: Some(vec!["foo".to_string(), "bar".to_string()]),
+                    none_of: None,
+                    all_of: None,
+                }),
+            },
+        );
+        schema.insert(
+            "cars".to_string(),
+            DatumSchema::List {
+                schema: Box::from(DatumSchema::String {
+                    specification: None,
+                }),
+            },
+        );
+        let d = DocumentSchema { schema };
+        println!("{}", serde_json::to_string(&d).unwrap());
+        let output = format!("{}", serde_json::to_string(&d).unwrap());
+        let f: DocumentSchema = serde_json::from_str(&output).unwrap();
+        println!("{}", serde_json::to_string(&f).unwrap())
+    }
     //We use untagged serialization for a smoother user experience.
-    //Maintain these tests to make sure serde's in-order, best-effort attemps
+    //Maintain these tests to make sure serde's in-order, best-effort attempts
     //behave as expected
     #[test]
     fn verify_int_oneof_spec_serde_properly() {
