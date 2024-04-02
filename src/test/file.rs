@@ -49,13 +49,10 @@ enum DatumSchema {
     },
 }
 
-//Issue, we don't support json body of form
-//  - "foo"  Where foo is quoted string ( valid, root-level json )
-//  - [] Where it is a list ( valid , root-level json)
 #[derive(Serialize, Debug, Deserialize)]
 struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
-    pub schema: BTreeMap<String, DatumSchema>,
+    pub schema: DatumSchema,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -251,9 +248,12 @@ mod tests {
                 }),
             },
         );
-        let d = DocumentSchema { schema };
-        println!("{}", serde_json::to_string(&d).unwrap());
-        let output = format!("{}", serde_json::to_string(&d).unwrap());
+        let s = DocumentSchema {
+            schema: DatumSchema::Object { schema },
+        };
+
+        println!("{}", serde_json::to_string(&s).unwrap());
+        let output = format!("{}", serde_json::to_string(&s).unwrap());
         let f: DocumentSchema = serde_json::from_str(&output).unwrap();
         println!("{}", serde_json::to_string(&f).unwrap())
     }
