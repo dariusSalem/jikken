@@ -8,7 +8,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 
 //add pattern
-#[derive(Serialize, Debug, Deserialize)]
+#[derive(Serialize, Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Specification<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,7 +25,7 @@ struct Specification<T> {
     pub all_of: Option<Vec<T>>,
 }
 
-#[derive(Serialize, Debug, Deserialize)]
+#[derive(Serialize, Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 enum DatumSchema {
@@ -49,7 +49,7 @@ enum DatumSchema {
     },
 }
 
-#[derive(Serialize, Debug, Deserialize)]
+#[derive(Serialize, Debug, Clone, Deserialize)]
 struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
@@ -113,6 +113,20 @@ impl Hash for UnvalidatedCompareRequest {
         self.add_headers.hash(state);
         self.ignore_headers.hash(state);
     }
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+#[serde(untagged)]
+enum ValueOrSpecification<T> {
+    Value(T),
+    Schema(Specification<i32>),
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+#[serde(untagged)]
+enum BodyOrSchema {
+    Value(serde_json::Value),
+    Schema(DocumentSchema),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +224,8 @@ pub fn load(filename: &str) -> Result<test::File, Box<dyn Error + Send + Sync>> 
 
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
     use super::*;
 
     fn get_example_file_path(p: &str) -> std::path::PathBuf {
@@ -218,6 +234,21 @@ mod tests {
             .join(p)
     }
 
+    #[test]
+    fn more() {
+        let val = ValueOrSpecification::Value(202);
+        println!("{}", serde_json::to_string(&val).unwrap());
+
+        let val2 = ValueOrSpecification::<i32>::Schema(Specification {
+            none_of: Some(vec![400, 500]),
+            all_of: None,
+            max: None,
+            min: None,
+            one_of: None,
+            val: None,
+        });
+        println!("{}", serde_json::to_string(&val2).unwrap());
+    }
     /*
        The following tests may appear as though they are just
        testing serde functionality. However, they're a compile-time
