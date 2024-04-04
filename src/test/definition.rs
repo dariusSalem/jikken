@@ -1,4 +1,5 @@
 use crate::test;
+use crate::test::file::ValueOrSpecification;
 use crate::test::{file, http, validation};
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -198,7 +199,7 @@ impl ResponseExtraction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseDescriptor {
-    pub status: Option<u16>,
+    pub status: Option<ValueOrSpecification<u16>>,
     pub headers: Vec<http::Header>,
     pub body: Option<RequestBody>,
     pub ignore: Vec<String>,

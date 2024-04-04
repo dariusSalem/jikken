@@ -1,16 +1,21 @@
 use crate::test;
+use crate::test::file::Validated::Good;
 use crate::test::{definition, http, variable};
 use log::error;
+//use nonempty_collections::nev;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::fmt;
+use std::fmt::Display;
 use std::fs;
 use std::hash::{Hash, Hasher};
+use validated::Validated;
 
 //add pattern
-#[derive(Serialize, Debug, Clone, Deserialize)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Hash)]
 #[serde(rename_all = "camelCase")]
-struct Specification<T> {
+pub struct Specification<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub val: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -21,14 +26,118 @@ struct Specification<T> {
     pub one_of: Option<Vec<T>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub none_of: Option<Vec<T>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub all_of: Option<Vec<T>>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    //pub all_of: Option<Vec<T>>,
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize)]
+pub trait Checker {
+    type Item;
+    fn check(&self, val: &Self::Item) -> Vec<Validated<(), String>>; //Validated<Vec<()>, String>;
+}
+
+impl<T> Specification<T>
+where
+    T: PartialEq,
+    T: Display,
+    T: PartialOrd,
+    T: fmt::Debug,
+{
+    fn check_val(&self, actual: &T) -> Validated<(), String> {
+        match &self.val {
+            Some(t) => {
+                if t == actual {
+                    Good(())
+                } else {
+                    Validated::fail(format!("Val check failed: {actual} not equal {t}"))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_min(&self, actual: &T) -> Validated<(), String> {
+        match &self.min {
+            Some(t) => {
+                if t <= actual {
+                    Good(())
+                } else {
+                    Validated::fail(format!(
+                        "Minimum check failed: {actual} not greater than or equal to {t}"
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_max(&self, actual: &T) -> Validated<(), String> {
+        match &self.max {
+            Some(t) => {
+                if t >= actual {
+                    Good(())
+                } else {
+                    Validated::fail(format!(
+                        "Maximum check failed: {actual} not less than or equal to {t}"
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_one_of(&self, actual: &T) -> Validated<(), String> {
+        match &self.one_of {
+            Some(t) => {
+                if t.contains(actual) {
+                    Good(())
+                } else {
+                    Validated::fail(format!("One_Of check failed: {actual} not in {:?}", t))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_none_of(&self, actual: &T) -> Validated<(), String> {
+        match &self.none_of {
+            Some(t) => {
+                if !t.contains(actual) {
+                    Good(())
+                } else {
+                    Validated::fail(format!("None_Of check failed: {actual} in {:?}", t))
+                }
+            }
+            None => Good(()),
+        }
+    }
+}
+
+impl<T> Checker for Specification<T>
+where
+    T: PartialEq,
+    T: Display,
+    T: PartialOrd,
+    T: fmt::Debug,
+{
+    type Item = T;
+    fn check(&self, val: &T) -> Vec<Validated<(), String>> {
+        //Validated<Vec<()>, String> {
+        vec![
+            self.check_val(&val),
+            self.check_min(&val),
+            self.check_max(&val),
+            self.check_none_of(&val),
+            self.check_one_of(&val),
+        ]
+        //.into_iter()
+        //.collect()
+    }
+}
+
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
-enum DatumSchema {
+pub enum DatumSchema {
     Float {
         #[serde(flatten)]
         specification: Option<Specification<f32>>,
@@ -50,7 +159,7 @@ enum DatumSchema {
 }
 
 #[derive(Serialize, Debug, Clone, Deserialize)]
-struct DocumentSchema {
+pub struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
 }
@@ -115,16 +224,39 @@ impl Hash for UnvalidatedCompareRequest {
     }
 }
 
-#[derive(Debug, Serialize, Clone, Deserialize)]
+#[derive(Debug, Serialize, Clone, PartialEq, Deserialize, Hash)]
 #[serde(untagged)]
-enum ValueOrSpecification<T> {
+pub enum ValueOrSpecification<T> {
     Value(T),
-    Schema(Specification<i32>),
+    Schema(Specification<T>),
+}
+
+impl<T> Checker for ValueOrSpecification<T>
+where
+    T: PartialEq,
+    T: Display,
+    T: PartialOrd,
+    T: fmt::Debug,
+{
+    type Item = T;
+    fn check(&self, val: &Self::Item) -> Vec<Validated<(), String>> {
+        //Validated<Vec<()>, String> {
+        match &self {
+            ValueOrSpecification::Value(t) => {
+                if t == val {
+                    vec![Good(())]
+                } else {
+                    vec![Validated::fail(format!("{val} not equal to {t}"))]
+                }
+            }
+            ValueOrSpecification::Schema(s) => s.check(val),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Clone, Deserialize)]
 #[serde(untagged)]
-enum BodyOrSchema {
+pub enum BodyOrSchema {
     Value(serde_json::Value),
     Schema(DocumentSchema),
 }
@@ -132,7 +264,7 @@ enum BodyOrSchema {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<u16>,
+    pub status: Option<ValueOrSpecification<u16>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<Vec<http::Header>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -146,7 +278,7 @@ pub struct UnvalidatedResponse {
 impl Default for UnvalidatedResponse {
     fn default() -> Self {
         Self {
-            status: Some(200),
+            status: Some(ValueOrSpecification::Value(200)),
             headers: None,
             body: None,
             ignore: None,
@@ -224,7 +356,6 @@ pub fn load(filename: &str) -> Result<test::File, Box<dyn Error + Send + Sync>> 
 
 #[cfg(test)]
 mod tests {
-    use serde_json::Value;
 
     use super::*;
 
@@ -241,7 +372,7 @@ mod tests {
 
         let val2 = ValueOrSpecification::<i32>::Schema(Specification {
             none_of: Some(vec![400, 500]),
-            all_of: None,
+            // all_of: None,
             max: None,
             min: None,
             one_of: None,
@@ -267,7 +398,7 @@ mod tests {
                     max: None,
                     one_of: Some(vec!["foo".to_string(), "bar".to_string()]),
                     none_of: None,
-                    all_of: None,
+                    //all_of: None,
                 }),
             },
         );

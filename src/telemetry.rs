@@ -395,6 +395,7 @@ pub async fn complete_session(
 mod tests {
 
     use crate::{
+        executor::ExpectedResultData,
         executor::ResultData,
         test::definition::{CompareDescriptor, RequestResponseDescriptor, StageDescriptor},
     };
@@ -532,10 +533,10 @@ mod tests {
             actual: None,
             request: rd.clone(),
             compare_actual: None,
-            expected: ResultData {
+            expected: ExpectedResultData {
                 body: serde_json::Value::Null,
                 headers: vec![],
-                status: 0,
+                status: None,
             },
             compare_request: Some(rd.clone()),
         });
