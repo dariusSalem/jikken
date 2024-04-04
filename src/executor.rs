@@ -1039,7 +1039,9 @@ fn process_response(
         //Validated<Vec<()>, String> {
         match &expected {
             &None => vec![Good(())].into_iter().collect(),
-            &Some(t) => t.check(&actual),
+            &Some(t) => t.check(&actual, &|expected, actual| -> String {
+                format!("Expected status code {expected} but received {actual}")
+            }),
         }
         /*
         if expected == 0 {

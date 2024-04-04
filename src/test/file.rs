@@ -2,12 +2,11 @@ use crate::test;
 use crate::test::file::Validated::Good;
 use crate::test::{definition, http, variable};
 use log::error;
-//use nonempty_collections::nev;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::fmt;
 use std::fmt::Display;
+use std::fmt::{self, Formatter};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use validated::Validated;
@@ -32,7 +31,11 @@ pub struct Specification<T> {
 
 pub trait Checker {
     type Item;
-    fn check(&self, val: &Self::Item) -> Vec<Validated<(), String>>; //Validated<Vec<()>, String>;
+    fn check(
+        &self,
+        val: &Self::Item,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>>; //Validated<Vec<()>, String>;
 }
 
 impl<T> Specification<T>
@@ -42,69 +45,109 @@ where
     T: PartialOrd,
     T: fmt::Debug,
 {
-    fn check_val(&self, actual: &T) -> Validated<(), String> {
+    fn check_val(
+        &self,
+        actual: &T,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
         match &self.val {
             Some(t) => {
                 if t == actual {
                     Good(())
                 } else {
-                    Validated::fail(format!("Val check failed: {actual} not equal {t}"))
+                    Validated::fail(formatter(
+                        format!("{}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                    //Validated::fail(format!("Val check failed: {actual} not equal {t}"))
                 }
             }
             None => Good(()),
         }
     }
 
-    fn check_min(&self, actual: &T) -> Validated<(), String> {
+    fn check_min(
+        &self,
+        actual: &T,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
         match &self.min {
             Some(t) => {
                 if t <= actual {
                     Good(())
                 } else {
-                    Validated::fail(format!(
-                        "Minimum check failed: {actual} not greater than or equal to {t}"
+                    Validated::fail(formatter(
+                        format!("minimum of {}", t).as_str(),
+                        format!("{}", actual).as_str(),
                     ))
+                    //Validated::fail(format!(
+                    //    "Minimum check failed: {actual} not greater than or equal to {t}"
+                    //))
                 }
             }
             None => Good(()),
         }
     }
 
-    fn check_max(&self, actual: &T) -> Validated<(), String> {
+    fn check_max(
+        &self,
+        actual: &T,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
         match &self.max {
             Some(t) => {
                 if t >= actual {
                     Good(())
                 } else {
-                    Validated::fail(format!(
-                        "Maximum check failed: {actual} not less than or equal to {t}"
+                    Validated::fail(formatter(
+                        format!("maximum of {}", t).as_str(),
+                        format!("{}", actual).as_str(),
                     ))
+                    //Validated::fail(format!(
+                    //    "Maximum check failed: {actual} not less than or equal to {t}"
+                    //))
                 }
             }
             None => Good(()),
         }
     }
 
-    fn check_one_of(&self, actual: &T) -> Validated<(), String> {
+    fn check_one_of(
+        &self,
+        actual: &T,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
         match &self.one_of {
             Some(t) => {
                 if t.contains(actual) {
                     Good(())
                 } else {
-                    Validated::fail(format!("One_Of check failed: {actual} not in {:?}", t))
+                    Validated::fail(formatter(
+                        format!("one of {:?}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                    //Validated::fail(format!("One_Of check failed: {actual} not in {:?}", t))
                 }
             }
             None => Good(()),
         }
     }
 
-    fn check_none_of(&self, actual: &T) -> Validated<(), String> {
+    fn check_none_of(
+        &self,
+        actual: &T,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
         match &self.none_of {
             Some(t) => {
                 if !t.contains(actual) {
                     Good(())
                 } else {
-                    Validated::fail(format!("None_Of check failed: {actual} in {:?}", t))
+                    Validated::fail(formatter(
+                        format!("none of {:?}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                    //Validated::fail(format!("None_Of check failed: {actual} in {:?}", t))
                 }
             }
             None => Good(()),
@@ -120,14 +163,18 @@ where
     T: fmt::Debug,
 {
     type Item = T;
-    fn check(&self, val: &T) -> Vec<Validated<(), String>> {
+    fn check(
+        &self,
+        val: &T,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
         //Validated<Vec<()>, String> {
         vec![
-            self.check_val(&val),
-            self.check_min(&val),
-            self.check_max(&val),
-            self.check_none_of(&val),
-            self.check_one_of(&val),
+            self.check_val(&val, formatter),
+            self.check_min(&val, formatter),
+            self.check_max(&val, formatter),
+            self.check_none_of(&val, formatter),
+            self.check_one_of(&val, formatter),
         ]
         //.into_iter()
         //.collect()
@@ -239,17 +286,24 @@ where
     T: fmt::Debug,
 {
     type Item = T;
-    fn check(&self, val: &Self::Item) -> Vec<Validated<(), String>> {
+    fn check(
+        &self,
+        val: &Self::Item,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
         //Validated<Vec<()>, String> {
         match &self {
             ValueOrSpecification::Value(t) => {
                 if t == val {
                     vec![Good(())]
                 } else {
-                    vec![Validated::fail(format!("{val} not equal to {t}"))]
+                    vec![Validated::fail(formatter(
+                        format!("{}", t).as_str(),
+                        format!("{}", val).as_str(), //format!("{val} not equal to {t}"))]
+                    ))]
                 }
             }
-            ValueOrSpecification::Schema(s) => s.check(val),
+            ValueOrSpecification::Schema(s) => s.check(val, formatter),
         }
     }
 }
