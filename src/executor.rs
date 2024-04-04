@@ -1039,25 +1039,14 @@ fn process_response(
         //Validated<Vec<()>, String> {
         match &expected {
             &None => vec![Good(())].into_iter().collect(),
-            &Some(t) => t.check(&actual, &|expected, actual| -> String {
-                format!("Expected status code {expected} but received {actual}")
-            }),
-        }
-        /*
-        if expected == 0 {
-            return Good(());
-        }
+            &Some(t) => {
+                trace!("validating {}status codes", validation_type);
 
-        trace!("validating {}status codes", validation_type);
-
-        if expected == actual {
-            Good(())
-        } else {
-            Validated::fail(format!(
-                "Expected status code {} but received {}",
-                expected, actual
-            ))
-        }*/
+                t.check(&actual, &|expected, actual| -> String {
+                    format!("Expected status code {expected} but received {actual}")
+                })
+            }
+        }
     };
 
     let validate_body = |validation_type: &str,

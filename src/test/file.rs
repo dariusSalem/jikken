@@ -433,6 +433,15 @@ mod tests {
             val: None,
         });
         println!("{}", serde_json::to_string(&val2).unwrap());
+        let resp = UnvalidatedResponse {
+            status: Some(ValueOrSpecification::<u16>::Value(200)),
+            ..Default::default()
+        };
+
+        println!("{}", serde_json::to_string(&resp).unwrap());
+
+        let foo: ValueOrSpecification<u16> = serde_json::from_str("200").unwrap();
+        let ba: ValueOrSpecification<u16> = serde_json::from_str(r#"{"oneOf": [200]}"#).unwrap();
     }
     /*
        The following tests may appear as though they are just
