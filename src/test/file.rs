@@ -187,11 +187,11 @@ where
 pub enum DatumSchema {
     Float {
         #[serde(flatten)]
-        specification: Option<Specification<f32>>,
+        specification: Option<Specification<f64>>,
     },
     Int {
         #[serde(flatten)]
-        specification: Option<Specification<i32>>,
+        specification: Option<Specification<i64>>,
     },
     String {
         #[serde(flatten)]
@@ -205,10 +205,159 @@ pub enum DatumSchema {
     },
 }
 
+impl DatumSchema {
+    fn check(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        let mut ret = self.check_float(actual, formatter);
+        ret.append(self.check_int(actual, formatter).as_mut());
+        ret.append(self.check_string(actual, formatter).as_mut());
+        ret.append(self.check_list(actual, formatter).as_mut());
+        ret.append(self.check_object(actual, formatter).as_mut());
+        ret
+    }
+
+    fn check_float(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        match self {
+            DatumSchema::Float { specification } => {
+                if !actual.is_f64() {
+                    return vec![Validated::fail(formatter("float type", "different type"))];
+                }
+
+                specification
+                    .as_ref()
+                    .map(|s| s.check(&actual.as_f64().unwrap(), formatter))
+                    .unwrap_or(vec![Good(())])
+            }
+            _ => vec![Good(())],
+        }
+    }
+
+    fn check_int(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        match self {
+            DatumSchema::Int { specification } => {
+                if !actual.is_i64() {
+                    return vec![Validated::fail(formatter("int type", "different type"))];
+                }
+
+                specification
+                    .as_ref()
+                    .map(|s| s.check(&actual.as_i64().unwrap(), formatter))
+                    .unwrap_or(vec![Good(())])
+            }
+            _ => vec![Good(())],
+        }
+    }
+
+    fn check_string(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        match self {
+            DatumSchema::String { specification } => {
+                if !actual.is_string() {
+                    return vec![Validated::fail(formatter("string type", "different type"))];
+                }
+
+                specification
+                    .as_ref()
+                    .map(|s| s.check(&actual.as_str().unwrap().to_string(), formatter))
+                    .unwrap_or(vec![Good(())])
+            }
+            _ => vec![Good(())],
+        }
+    }
+
+    fn check_list(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        match self {
+            DatumSchema::List { schema } => {
+                if !actual.is_array() {
+                    return vec![Validated::fail(formatter("array type", "different type"))];
+                }
+
+                actual
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| self.check(v, formatter))
+                    .flatten()
+                    .collect()
+            }
+            _ => vec![Good(())],
+        }
+    }
+
+    fn check_object(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        match self {
+            DatumSchema::Object { schema } => {
+                if !actual.is_object() {
+                    return vec![Validated::fail(formatter("object type", "different type"))];
+                }
+
+                let vals = actual.as_object().unwrap();
+                schema
+                    .iter()
+                    .map(|(k, datum)| {
+                        vals.get(k)
+                            .map(|v| datum.check(v, formatter))
+                            .unwrap_or(vec![Validated::fail(formatter(
+                                format!(r#"member "{k}""#).as_str(),
+                                format!(r#"object with "{k}" missing"#).as_str(),
+                            ))])
+                    })
+                    .flatten()
+                    .collect()
+            }
+            _ => vec![Good(())],
+        }
+    }
+}
+
+impl Checker for DatumSchema {
+    type Item = serde_json::Value;
+    fn check(
+        &self,
+        val: &Self::Item,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        self.check(val, formatter)
+    }
+}
+
 #[derive(Serialize, Debug, Clone, Deserialize)]
 pub struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
+}
+
+impl Checker for DocumentSchema {
+    type Item = serde_json::Value;
+    fn check(
+        &self,
+        val: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        self.schema.check(val, formatter)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -412,13 +561,52 @@ pub fn load(filename: &str) -> Result<test::File, Box<dyn Error + Send + Sync>> 
 mod tests {
 
     use super::*;
+    use nonempty_collections::*;
 
     fn get_example_file_path(p: &str) -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("example_tests")
             .join(p)
     }
+    #[test]
+    fn body_validation() {
+        let mut schema = BTreeMap::<String, DatumSchema>::new();
+        schema.insert(
+            "name".to_string(),
+            DatumSchema::String {
+                specification: Some(Specification {
+                    val: None,
+                    min: None,
+                    max: None,
+                    one_of: Some(vec!["foo".to_string(), "bar".to_string()]),
+                    none_of: None,
+                    //all_of: None,
+                }),
+            },
+        );
+        schema.insert(
+            "cars".to_string(),
+            DatumSchema::List {
+                schema: Box::from(DatumSchema::String {
+                    specification: None,
+                }),
+            },
+        );
+        let s = DocumentSchema {
+            schema: DatumSchema::Object { schema },
+        };
 
+        let res = s.check(&serde_json::json!({}), &|e, a| {
+            format!("Expected object with {e} but received {a}!")
+        });
+        let expected: Validated<Vec<()>, String> = Validated::Fail(nev![
+            r#"Expected object with member "cars" but received object with "cars" missing!"#
+                .to_string(),
+            r#"Expected object with member "name" but received object with "name" missing!"#
+                .to_string()
+        ]);
+        assert_eq!(expected, res.into_iter().collect());
+    }
     #[test]
     fn more() {
         let val = ValueOrSpecification::Value(202);
