@@ -4,17 +4,21 @@ use crate::test::file::Validated::Good;
 use crate::test::{definition, http, variable};
 use log::error;
 use log::trace;
+use num::range;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use serde_json::Map;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::Display;
 use std::fmt::{self};
-use std::fs;
 use std::hash::{Hash, Hasher};
+use std::{default, fs};
 use validated::Validated;
 
 //add pattern
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Hash)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Default, Hash)]
 #[serde(rename_all = "camelCase")]
 pub struct Specification<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,6 +149,17 @@ where
         }
     }
 }
+
+//Generates values in line with specification
+/*pub trait Generator<T>
+where
+    T: Checker,
+{
+    fn generate(&self, checker: &T) -> Option<T::Item>;
+}
+
+impl<T> Generate
+*/
 
 impl<T> Checker for Specification<T>
 where
@@ -403,7 +418,7 @@ pub struct UnvalidatedCompareRequest {
     pub headers: Option<Vec<http::Header>>,
     pub add_headers: Option<Vec<http::Header>>,
     pub ignore_headers: Option<Vec<String>>,
-    pub body: Option<ValueOrSchema>, //Option<serde_json::Value>,
+    pub body: Option<ValueOrSchema>,
 }
 
 impl Hash for UnvalidatedCompareRequest {
@@ -640,6 +655,136 @@ pub fn load(filename: &str) -> Result<test::File, Box<dyn Error + Send + Sync>> 
             Err(Box::from(e))
         }
     }
+}
+
+fn generate_number<T>(spec: &Specification<T>, max_attemps: u16) -> Option<T>
+where
+    T: num::Num
+        + rand::distributions::uniform::SampleUniform
+        + std::cmp::PartialOrd
+        + std::default::Default
+        + Clone
+        + PartialEq
+        + Display
+        + PartialOrd
+        + fmt::Debug,
+    Specification<T>: Checker<Item = T>,
+{
+    let mut rng = rand::thread_rng();
+    (0..max_attemps)
+        .map(|_| {
+            return match spec.one_of.as_ref() {
+                Some(vals) => vals
+                    .get(rng.gen_range(0..vals.len()))
+                    .unwrap_or(&T::default())
+                    .clone(),
+                None => rng.gen_range(
+                    spec.min.clone().unwrap_or_default()..spec.max.clone().unwrap_or_default(),
+                ),
+            };
+        })
+        .filter(|v| {
+            spec.check(v, &|e, a| "".to_string())
+                .into_iter()
+                .collect::<Validated<Vec<()>, String>>()
+                .is_good()
+        })
+        .nth(0)
+}
+
+fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option<String> {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                            abcdefghijklmnopqrstuvwxyz\
+                            "; // 0123456789)(*&^%$#@!~";
+
+    let mut rng = rand::thread_rng();
+    let string_length: usize = rng.gen_range(1..50);
+
+    for _ in 0..max_attemps {
+        let ret: String = match spec.one_of.as_ref() {
+            Some(vals) => vals
+                .get(rng.gen_range(0..vals.len()))
+                .unwrap_or(&String::default())
+                .clone(),
+            None => (0..string_length)
+                .map(|_| {
+                    let idx = rng.gen_range(0..CHARSET.len());
+                    CHARSET[idx] as char
+                })
+                .collect::<String>(),
+        };
+
+        let r = spec.check(&ret, &|e, a| "".to_string());
+        if r.into_iter()
+            .collect::<Validated<Vec<()>, String>>()
+            .is_good()
+        {
+            return Some(ret);
+        }
+    }
+
+    None
+}
+
+fn generate_value_from_schema(
+    schema: &DatumSchema,
+    max_attempts: u16,
+) -> Option<serde_json::Value> {
+    return match schema {
+        DatumSchema::Float { specification } => generate_number(
+            specification
+                .as_ref()
+                .unwrap_or(&Specification::<f64>::default()),
+            max_attempts,
+        )
+        .map(|v| serde_json::Value::from(v)),
+        DatumSchema::Int { specification } => generate_number(
+            specification
+                .as_ref()
+                .unwrap_or(&Specification::<i64>::default()),
+            max_attempts,
+        )
+        .map(|v| serde_json::Value::from(v)),
+        DatumSchema::String { specification } => generate_string(
+            specification
+                .as_ref()
+                .unwrap_or(&Specification::<String>::default()),
+            max_attempts,
+        )
+        .map(|v| serde_json::Value::from(v)),
+        DatumSchema::List { schema } => Some(serde_json::Value::Array {
+            0: schema
+                .as_ref()
+                .map(|s| {
+                    (0..3)
+                        .map(|_| generate_value_from_schema(&*s, max_attempts))
+                        .filter(|o| o.is_some())
+                        .map(|o| o.unwrap())
+                        .collect::<Vec<Value>>()
+                })
+                .unwrap_or_default(),
+        }),
+        DatumSchema::Object { schema } => {
+            let f = schema
+                .as_ref()
+                .map(|s| {
+                    s.iter()
+                        .map(|(k, v)| {
+                            let ret = generate_value_from_schema(v, max_attempts);
+                            if ret.is_none() {
+                                return None;
+                            }
+
+                            return Some((k.clone(), ret.unwrap()));
+                        })
+                        .filter(|tup| tup.is_some())
+                        .map(|tup| tup.unwrap())
+                        .collect::<Map<String, serde_json::Value>>()
+                })
+                .unwrap_or_default();
+            Some(serde_json::Value::Object { 0: f })
+        }
+    };
 }
 
 #[cfg(test)]
@@ -1059,5 +1204,53 @@ mod tests {
                 ValueOrSchema::Value(..) => true,
             }
         );
+    }
+
+    #[test]
+    fn number_generation() {
+        for _ in 1..10 {
+            if let Some(x) = generate_number(
+                &Specification::<u16> {
+                    min: Some(1),
+                    max: Some(9),
+                    none_of: None,
+                    one_of: None,
+                    val: None,
+                },
+                10,
+            ) {
+                println!("val is {x}");
+            }
+        }
+    }
+
+    #[test]
+    fn string_generation() {
+        for _ in 1..10 {
+            if let Some(x) = generate_string(
+                &Specification::<String> {
+                    min: None,
+                    max: None,
+                    none_of: Some(vec!["foo".to_string(), "bar".to_string()]),
+                    one_of: None,
+                    val: None,
+                },
+                10,
+            ) {
+                println!("val is {x}");
+            }
+        }
+    }
+
+    #[test]
+    fn object_generation() {
+        let schema = construct_datum_schema_object();
+        for _ in 1..10 {
+            if let Some(x) = generate_value_from_schema(&schema, 10) {
+                println!("val is {x}");
+            } else {
+                print!("Failed");
+            }
+        }
     }
 }

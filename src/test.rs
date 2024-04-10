@@ -811,7 +811,10 @@ impl Definition {
             return self
                 .resolve_body_variables(&body.data, variables, iteration)
                 .and_then(|b| match b {
-                    ValueOrSchema::Schema(..) => None, //Value generation would take place here
+                    ValueOrSchema::Schema(s) => {
+                        //s.schema.
+                        None //Value generation would take place here
+                    }
                     ValueOrSchema::Value(v) => Some(v),
                 });
         }
