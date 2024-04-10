@@ -4,7 +4,6 @@ use crate::test::file::Validated::Good;
 use crate::test::{definition, http, variable};
 use log::error;
 use log::trace;
-use num::range;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
@@ -13,8 +12,8 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::Display;
 use std::fmt::{self};
+use std::fs;
 use std::hash::{Hash, Hasher};
-use std::{default, fs};
 use validated::Validated;
 
 //add pattern
@@ -657,7 +656,7 @@ pub fn load(filename: &str) -> Result<test::File, Box<dyn Error + Send + Sync>> 
     }
 }
 
-fn generate_number<T>(spec: &Specification<T>, max_attemps: u16) -> Option<T>
+pub fn generate_number<T>(spec: &Specification<T>, max_attemps: u16) -> Option<T>
 where
     T: num::Num
         + rand::distributions::uniform::SampleUniform
@@ -684,7 +683,7 @@ where
             };
         })
         .filter(|v| {
-            spec.check(v, &|e, a| "".to_string())
+            spec.check(v, &|_e, _a| "".to_string())
                 .into_iter()
                 .collect::<Validated<Vec<()>, String>>()
                 .is_good()
@@ -692,7 +691,7 @@ where
         .nth(0)
 }
 
-fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option<String> {
+pub fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option<String> {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                             abcdefghijklmnopqrstuvwxyz\
                             "; // 0123456789)(*&^%$#@!~";
@@ -714,7 +713,7 @@ fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option<Str
                 .collect::<String>(),
         };
 
-        let r = spec.check(&ret, &|e, a| "".to_string());
+        let r = spec.check(&ret, &|_e, _a| "".to_string());
         if r.into_iter()
             .collect::<Validated<Vec<()>, String>>()
             .is_good()
@@ -726,7 +725,7 @@ fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option<Str
     None
 }
 
-fn generate_value_from_schema(
+pub fn generate_value_from_schema(
     schema: &DatumSchema,
     max_attempts: u16,
 ) -> Option<serde_json::Value> {
@@ -1208,49 +1207,53 @@ mod tests {
 
     #[test]
     fn number_generation() {
-        for _ in 1..10 {
-            if let Some(x) = generate_number(
-                &Specification::<u16> {
-                    min: Some(1),
-                    max: Some(9),
-                    none_of: None,
-                    one_of: None,
-                    val: None,
-                },
-                10,
-            ) {
-                println!("val is {x}");
-            }
-        }
+        let spec = Specification::<u16> {
+            min: Some(1),
+            max: Some(9),
+            none_of: None,
+            one_of: None,
+            val: None,
+        };
+
+        let num = generate_number(&spec, 10);
+
+        assert!(num.is_some());
+        assert!(spec
+            .check(&num.unwrap(), &|_e, _a| "".to_string())
+            .into_iter()
+            .collect::<Validated<Vec<()>, String>>()
+            .is_good());
     }
 
     #[test]
     fn string_generation() {
-        for _ in 1..10 {
-            if let Some(x) = generate_string(
-                &Specification::<String> {
-                    min: None,
-                    max: None,
-                    none_of: Some(vec!["foo".to_string(), "bar".to_string()]),
-                    one_of: None,
-                    val: None,
-                },
-                10,
-            ) {
-                println!("val is {x}");
-            }
-        }
+        let spec = Specification::<String> {
+            min: None,
+            max: None,
+            none_of: Some(vec!["foo".to_string(), "bar".to_string()]),
+            one_of: None,
+            val: None,
+        };
+
+        let val = generate_string(&spec, 10);
+
+        assert!(val.is_some());
+        assert!(spec
+            .check(&val.unwrap(), &|_e, _a| "".to_string())
+            .into_iter()
+            .collect::<Validated<Vec<()>, String>>()
+            .is_good());
     }
 
     #[test]
     fn object_generation() {
         let schema = construct_datum_schema_object();
-        for _ in 1..10 {
-            if let Some(x) = generate_value_from_schema(&schema, 10) {
-                println!("val is {x}");
-            } else {
-                print!("Failed");
-            }
-        }
+        let val = generate_value_from_schema(&schema, 10);
+        assert!(val.is_some());
+        assert!(schema
+            .check(&val.unwrap(), &|_e, _a| "".to_string())
+            .into_iter()
+            .collect::<Validated<Vec<()>, String>>()
+            .is_good());
     }
 }

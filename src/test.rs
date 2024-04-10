@@ -17,7 +17,7 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use uuid::Uuid;
 
-use self::file::{UnvalidatedRequest, UnvalidatedResponse};
+use self::file::{generate_value_from_schema, UnvalidatedRequest, UnvalidatedResponse};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct File {
@@ -811,10 +811,7 @@ impl Definition {
             return self
                 .resolve_body_variables(&body.data, variables, iteration)
                 .and_then(|b| match b {
-                    ValueOrSchema::Schema(s) => {
-                        //s.schema.
-                        None //Value generation would take place here
-                    }
+                    ValueOrSchema::Schema(s) => generate_value_from_schema(&s.schema, 10),
                     ValueOrSchema::Value(v) => Some(v),
                 });
         }
