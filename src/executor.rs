@@ -1940,7 +1940,7 @@ mod tests {
         let expected = ExpectedResultData {
             status: Some(ValueOrSpecification::Schema(Specification::<u16> {
                 one_of: Some(vec![200, 201, 202]),
-                val: None,
+                value: None,
                 min: None,
                 max: None,
                 none_of: None,

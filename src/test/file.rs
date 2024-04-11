@@ -21,7 +21,7 @@ use validated::Validated;
 #[serde(rename_all = "camelCase")]
 pub struct Specification<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub val: Option<T>,
+    pub value: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min: Option<T>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,7 +53,7 @@ where
         actual: &T,
         formatter: &impl Fn(&str, &str) -> String,
     ) -> Validated<(), String> {
-        match &self.val {
+        match &self.value {
             Some(t) => {
                 if t == actual {
                     Good(())
@@ -792,7 +792,7 @@ mod tests {
     #[test]
     fn specification_val_checker() {
         let spec = Specification::<u16> {
-            val: Some(12),
+            value: Some(12),
             min: None,
             max: None,
             one_of: None,
@@ -817,7 +817,7 @@ mod tests {
     #[test]
     fn specification_min_checker() {
         let spec = Specification::<u16> {
-            val: None,
+            value: None,
             min: Some(50),
             max: None,
             one_of: None,
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn specification_max_checker() {
         let spec = Specification::<u16> {
-            val: None,
+            value: None,
             min: None,
             max: Some(50),
             one_of: None,
@@ -887,7 +887,7 @@ mod tests {
     #[test]
     fn specification_one_of_checker() {
         let spec = Specification::<u16> {
-            val: None,
+            value: None,
             min: None,
             max: None,
             one_of: Some(vec![1, 2, 3, 4, 5]),
@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn specification_none_of_checker() {
         let spec = Specification::<u16> {
-            val: None,
+            value: None,
             min: None,
             max: None,
             one_of: None,
@@ -945,7 +945,7 @@ mod tests {
     #[test]
     fn specification_errors_accumulate() {
         let spec = Specification::<u16> {
-            val: Some(1),
+            value: Some(1),
             min: Some(200),
             max: Some(100),
             one_of: Some(vec![1, 2, 4]),
@@ -1088,7 +1088,7 @@ mod tests {
                     "name".to_string(),
                     DatumSchema::String {
                         specification: Some(Specification {
-                            val: None,
+                            value: None,
                             min: None,
                             max: None,
                             one_of: Some(vec!["foo".to_string(), "bar".to_string()]),
@@ -1212,7 +1212,7 @@ mod tests {
             max: Some(9),
             none_of: None,
             one_of: None,
-            val: None,
+            value: None,
         };
 
         let num = generate_number(&spec, 10);
@@ -1232,7 +1232,7 @@ mod tests {
             max: None,
             none_of: Some(vec!["foo".to_string(), "bar".to_string()]),
             one_of: None,
-            val: None,
+            value: None,
         };
 
         let val = generate_string(&spec, 10);

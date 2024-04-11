@@ -22,7 +22,7 @@ fn create_tags(tags: &[String]) -> Option<String> {
 fn create_status_code(status_code_pattern: &str) -> Option<ValueOrSpecification<u16>> {
     if status_code_pattern == "2XX" {
         Some(ValueOrSpecification::Schema(Specification {
-            val: None,
+            value: None,
             min: Some(200),
             max: Some(299),
             one_of: None,
@@ -718,7 +718,7 @@ mod test {
     fn create_status_code_pattern_ok() {
         assert_eq!(
             Some(ValueOrSpecification::Schema(Specification::<u16> {
-                val: None,
+                value: None,
                 min: Some(200),
                 max: Some(299),
                 none_of: None,
