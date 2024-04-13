@@ -1,7 +1,12 @@
 use crate::json::filter::filter_json;
 use crate::test;
 use crate::test::file::Validated::Good;
+use crate::test::NaiveDate;
 use crate::test::{definition, http, variable};
+use chrono::Local;
+use chrono::TimeZone;
+use chrono::{DateTime, ParseError};
+use chrono::{Days, Months};
 use log::error;
 use log::trace;
 use rand::Rng;
@@ -183,6 +188,156 @@ where
     }
 }
 
+//How can I lift the default format into the type?
+struct DateSpecification {
+    pub specification: Specification<String>,
+    pub format: Option<String>,
+    pub modifier: Option<variable::Modifier>,
+}
+
+impl DateSpecification {
+    fn check_val(
+        &self,
+        actual: &String,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        self.specification.check_val(actual, formatter)
+    }
+
+    fn check_min(
+        &self,
+        actual: &String,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.specification.min {
+            Some(t) => {
+                if self.str_to_time(t).unwrap() <= self.str_to_time(actual).unwrap() {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("minimum of {}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_max(
+        &self,
+        actual: &String,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.specification.max {
+            Some(t) => {
+                if self.str_to_time(t).unwrap() >= self.str_to_time(actual).unwrap() {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("maximum of {}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_one_of(
+        &self,
+        actual: &String,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        self.specification.check_one_of(actual, formatter)
+    }
+
+    fn check_none_of(
+        &self,
+        actual: &String,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        self.specification.check_none_of(actual, formatter)
+    }
+
+    fn str_to_time(&self, string_val: &str) -> Result<DateTime<Local>, ParseError> {
+        let format = self.format.clone().unwrap_or("%Y-%m-%d".to_string());
+
+        NaiveDate::parse_from_str(string_val, format.as_str()).map(|d| {
+            Local
+                .from_local_datetime(&d.and_hms_opt(0, 0, 0).unwrap())
+                .unwrap()
+        })
+    }
+    //validates format stuff and applies the modifier
+    //this can be used to generate or validate
+    //But its not a "random" generator like our other specifications
+    fn get(&self, string_val: &str) -> Result<String, ParseError> {
+        //debug!("string expression: {:?}", v);
+        //let mut result_date;
+        self.str_to_time(string_val)
+            .map(|mut dt| {
+                if let Some(m) = &self.modifier {
+                    let mod_value_result = m.value.parse::<u64>();
+                    if let Ok(mod_value) = mod_value_result {
+                        match m.operation.to_lowercase().as_str() {
+                            "add" => {
+                                let modified_date = match m.unit.to_lowercase().as_str() {
+                                    "days" => dt.checked_add_days(Days::new(mod_value)),
+                                    "weeks" => dt.checked_add_days(Days::new(mod_value * 7)),
+                                    "months" => {
+                                        dt.checked_add_months(Months::new(mod_value as u32))
+                                    }
+                                    // TODO: add support for years
+                                    _ => None,
+                                };
+
+                                if let Some(md) = modified_date {
+                                    dt = md;
+                                }
+                            }
+                            "subtract" => {
+                                let modified_date = match m.unit.to_lowercase().as_str() {
+                                    "days" => dt.checked_sub_days(Days::new(mod_value)),
+                                    "weeks" => dt.checked_sub_days(Days::new(mod_value * 7)),
+                                    "months" => {
+                                        dt.checked_sub_months(Months::new(mod_value as u32))
+                                    }
+                                    // TODO: add support for years
+                                    _ => None,
+                                };
+
+                                if let Some(md) = modified_date {
+                                    dt = md;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                dt
+            })
+            .map(|d| format!("{}", d.format("%Y-%m-%d")))
+    }
+}
+
+impl Checker for DateSpecification {
+    type Item = String;
+    fn check(
+        &self,
+        val: &Self::Item,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        vec![
+            self.check_val(&val, formatter),
+            self.check_min(&val, formatter),
+            self.check_max(&val, formatter),
+            self.check_none_of(&val, formatter),
+            self.check_one_of(&val, formatter),
+        ]
+    }
+}
+
 #[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
@@ -198,7 +353,13 @@ pub enum DatumSchema {
     String {
         #[serde(flatten)]
         specification: Option<Specification<String>>,
-    },
+    }, /*
+       Date {
+           //add modifier
+           //add format
+           #[serde(flatten)]
+           specification: Option<Specification<String>>,
+       },*/
     List {
         #[serde(skip_serializing_if = "Option::is_none")]
         schema: Option<Box<DatumSchema>>,
@@ -222,6 +383,26 @@ impl DatumSchema {
         ret.append(self.check_object(actual, formatter).as_mut());
         ret
     }
+    /*
+    fn check_date(
+        &self,
+        actual: &serde_json::Value,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        match self {
+            DatumSchema::String { specification } => {
+                if !actual.is_string() {
+                    return vec![Validated::fail(formatter("float type", "type"))];
+                }
+
+                specification
+                    .as_ref()
+                    .map(|s| s.check(&actual.as_f64().unwrap(), formatter))
+                    .unwrap_or(vec![Good(())])
+            }
+            _ => vec![Good(())],
+        }
+    }*/
 
     fn check_float(
         &self,
@@ -669,6 +850,10 @@ where
         + fmt::Debug,
     Specification<T>: Checker<Item = T>,
 {
+    if spec.value.is_some() {
+        return spec.value.clone();
+    }
+
     let mut rng = rand::thread_rng();
     (0..max_attemps)
         .map(|_| {
@@ -695,6 +880,10 @@ pub fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
                             abcdefghijklmnopqrstuvwxyz\
                             "; // 0123456789)(*&^%$#@!~";
+
+    if spec.value.is_some() {
+        return spec.value.clone();
+    }
 
     let mut rng = rand::thread_rng();
     let string_length: usize = rng.gen_range(1..50);
@@ -723,6 +912,21 @@ pub fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option
     }
 
     None
+}
+
+pub fn generate_date(spec: &DateSpecification, max_attemps: u16) -> Option<String> {
+    if spec.specification.value.is_none() {
+        return None;
+    }
+
+    generate_string(&spec.specification, max_attemps)
+    /*
+        //Have to check it
+    for _ in 0..max_attemps {
+        if let Some(val) = generate_string(&spec.specification, 1){
+
+        }
+    }*/
 }
 
 pub fn generate_value_from_schema(
