@@ -749,7 +749,7 @@ impl Definition {
         iteration: u32,
     ) -> Option<ValueOrSchema> {
         return match body {
-            ValueOrSchema::Schema(s) => self.resolve_body_schema_variables(s, variables, iteration),
+            ValueOrSchema::Schema(s) => self.resolve_schema_variables(s, variables, iteration),
             ValueOrSchema::Value(v) => self.resolve_body_value_variables(v, variables, iteration),
         };
     }
@@ -766,7 +766,7 @@ impl Definition {
             .ok()
     }
 
-    fn resolve_body_schema_variables(
+    fn resolve_schema_variables(
         &self,
         schema: &DocumentSchema,
         variables: &[Variable],

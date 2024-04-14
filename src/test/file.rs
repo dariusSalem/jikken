@@ -188,8 +188,11 @@ where
     }
 }
 
+#[derive(Serialize, Debug, Clone, Deserialize, Hash, PartialEq)]
+
 //How can I lift the default format into the type?
-struct DateSpecification {
+pub struct DateSpecification {
+    #[serde(flatten)]
     pub specification: Specification<String>,
     pub format: Option<String>,
     pub modifier: Option<variable::Modifier>,
@@ -260,14 +263,23 @@ impl DateSpecification {
         self.specification.check_none_of(actual, formatter)
     }
 
+    fn get_format(&self) -> String {
+        self.format.clone().unwrap_or("%Y-%m-%d".to_string())
+    }
+
     fn str_to_time(&self, string_val: &str) -> Result<DateTime<Local>, ParseError> {
-        let format = self.format.clone().unwrap_or("%Y-%m-%d".to_string());
+        let format = self.get_format();
 
         NaiveDate::parse_from_str(string_val, format.as_str()).map(|d| {
             Local
                 .from_local_datetime(&d.and_hms_opt(0, 0, 0).unwrap())
                 .unwrap()
         })
+    }
+
+    fn time_to_str(&self, time: &DateTime<Local>) -> String {
+        let format = self.get_format();
+        format!("{}", time.format(&format))
     }
     //validates format stuff and applies the modifier
     //this can be used to generate or validate
@@ -317,7 +329,7 @@ impl DateSpecification {
                 }
                 dt
             })
-            .map(|d| format!("{}", d.format("%Y-%m-%d")))
+            .map(|d| self.time_to_str(&d))
     }
 }
 
@@ -337,8 +349,14 @@ impl Checker for DateSpecification {
         ]
     }
 }
+/*
+impl Hash for Specification<f64> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        serde_json::to_string(self).unwrap().hash(state)
+    }
+}*/
 
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, Hash)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum DatumSchema {
@@ -353,13 +371,11 @@ pub enum DatumSchema {
     String {
         #[serde(flatten)]
         specification: Option<Specification<String>>,
-    }, /*
-       Date {
-           //add modifier
-           //add format
-           #[serde(flatten)]
-           specification: Option<Specification<String>>,
-       },*/
+    },
+    Date {
+        #[serde(flatten)]
+        date: DateSpecification,
+    },
     List {
         #[serde(skip_serializing_if = "Option::is_none")]
         schema: Option<Box<DatumSchema>>,
@@ -537,7 +553,7 @@ impl Checker for DatumSchema {
     }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
+#[derive(Serialize, Debug, Clone, Deserialize, Hash, PartialEq)]
 pub struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
@@ -655,6 +671,14 @@ where
 pub enum ValueOrSchema {
     Schema(DocumentSchema),
     Value(serde_json::Value),
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize, PartialEq, Hash)]
+#[serde(untagged)]
+pub enum StringOrDatumOrFile {
+    File { file: String },
+    Schema(DatumSchema),
+    Value(String),
 }
 
 pub struct ValueOrSchemaChecker<'a> {
@@ -778,8 +802,14 @@ impl Hash for UnvalidatedResponse {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
 #[serde(rename_all = "camelCase")]
+pub struct UnvalidatedVariable {
+    pub name: String,
+    #[serde(flatten)]
+    pub value: StringOrDatumOrFile,
+}
+/*
 pub struct UnvalidatedVariable {
     pub name: String,
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
@@ -792,7 +822,7 @@ pub struct UnvalidatedVariable {
     pub format: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
-}
+}*/
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct UnvalidatedStage {
@@ -915,18 +945,25 @@ pub fn generate_string(spec: &Specification<String>, max_attemps: u16) -> Option
 }
 
 pub fn generate_date(spec: &DateSpecification, max_attemps: u16) -> Option<String> {
-    if spec.specification.value.is_none() {
-        return None;
+    if let Some(val) = &spec.specification.value {
+        return spec.get(val).ok();
     }
 
-    generate_string(&spec.specification, max_attemps)
-    /*
-        //Have to check it
-    for _ in 0..max_attemps {
-        if let Some(val) = generate_string(&spec.specification, 1){
+    //What we need for randomness below
+    //let mut rng = rand::thread_rng();
+    //let string_length: usize = rng.gen_range(DateTime::UNIX_EPOCH..DateTime::naive_local());
 
+    //Have to check it
+    for _ in 0..max_attemps {
+        if let Some(val) = generate_string(&spec.specification, 1) {
+            let ret = spec.str_to_time(&val);
+            if ret.is_ok() {
+                return ret.map(|v| spec.time_to_str(&v)).ok();
+            }
         }
-    }*/
+    }
+
+    None
 }
 
 pub fn generate_value_from_schema(
@@ -955,6 +992,9 @@ pub fn generate_value_from_schema(
             max_attempts,
         )
         .map(|v| serde_json::Value::from(v)),
+        DatumSchema::Date { date } => {
+            generate_date(&date, max_attempts).map(|v| serde_json::Value::from(v))
+        }
         DatumSchema::List { schema } => Some(serde_json::Value::Array {
             0: schema
                 .as_ref()
