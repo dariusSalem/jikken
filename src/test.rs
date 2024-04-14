@@ -184,7 +184,9 @@ impl Variable {
                     .ok()
                     .and_then(|ds| generate_value_from_schema(&ds, 10))
                     .and_then(|v| serde_json::to_string(&v).ok())
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string();
             }
         }
         //DARIUS FIX
@@ -823,21 +825,47 @@ impl Definition {
     }
 
     fn resolve_variables(&self, json_val: &str, variables: &[Variable], iteration: u32) -> String {
-        let mut mut_string = json_val.to_string();
+        let mut mut_string = json_val.to_string().trim_matches('"').to_string();
 
         for variable in variables.iter().chain(self.global_variables.iter()) {
             let var_pattern = format!("${{{}}}", variable.name);
-
             if !mut_string.contains(var_pattern.as_str()) {
                 continue;
             }
 
             let replacement =
                 variable.generate_value(self, iteration, self.global_variables.clone());
-            mut_string = mut_string
-                .replace(var_pattern.as_str(), replacement.as_str())
-                .trim()
-                .to_string();
+
+            //Do extra for non string stuff
+            let do_extra = match &variable.value {
+                StringOrDatumOrFile::Schema(ds) => match ds {
+                    DatumSchema::String { .. } => false,
+                    _ => true,
+                },
+                _ => false,
+            };
+
+            if do_extra {
+                let expected_lead_pattern = "\"";
+                let expected_trail_pattern = "\"";
+
+                mut_string = mut_string
+                    .replace(
+                        format!(
+                            "{}{}{}",
+                            expected_lead_pattern, var_pattern, expected_trail_pattern
+                        )
+                        .as_str(),
+                        replacement.as_str(),
+                    )
+                    .trim()
+                    .to_string();
+            } else {
+                mut_string = mut_string
+                    .replace(var_pattern.as_str(), replacement.as_str())
+                    .trim()
+                    .to_string();
+            }
         }
 
         mut_string
