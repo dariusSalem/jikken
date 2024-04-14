@@ -449,11 +449,13 @@ mod openapi_v31 {
                 ObjectOrReference::Ref { .. } => None,
                 ObjectOrReference::Object(t) => Some(test::file::UnvalidatedVariable {
                     name: t.name.clone(),
-                    data_type: None,
-                    file: None,
-                    format: None,
-                    modifier: None,
-                    value: None,
+
+                    //t.
+                    //data_type: None,
+                    //file: None,
+                    //format: None,
+                    //modifier: None,
+                    value: test::file::StringOrDatumOrFile::Value("".to_string()),
                 }),
             })
             .filter(Option::is_some)

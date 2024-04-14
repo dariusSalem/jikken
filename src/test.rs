@@ -7,7 +7,9 @@ pub mod variable;
 use crate::test::file::ValueOrSchema;
 
 use crate::test::definition::RequestBody;
+use crate::test::file::DatumSchema;
 use crate::test::file::DocumentSchema;
+use crate::test::file::StringOrDatumOrFile;
 use chrono::{offset::TimeZone, Days, Local, Months, NaiveDate};
 use log::{debug, error, trace};
 use serde::{Deserialize, Serialize};
@@ -19,7 +21,7 @@ use uuid::Uuid;
 
 use self::file::{generate_value_from_schema, UnvalidatedRequest, UnvalidatedResponse};
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
     pub name: Option<String>,
     pub id: Option<String>,
@@ -82,22 +84,19 @@ impl Default for File {
 
 impl File {
     pub fn generate_id(&self) -> String {
-        let mut s = DefaultHasher::new();
-        self.hash(&mut s);
-        format!("{}", s.finish())
+        Uuid::new_v4().to_string()
+        //let mut s = DefaultHasher::new();
+        //self.hash(&mut s);
+        //format!("{}", s.finish())
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Variable {
     pub name: String,
-    #[serde(rename = "type")]
-    pub data_type: variable::Type,
-    pub value: serde_yaml::Value,
-    pub modifier: Option<variable::Modifier>,
-    pub format: Option<String>,
-    pub file: Option<String>,
+    #[serde(flatten)]
+    pub value: StringOrDatumOrFile,
 
     #[serde(skip_serializing)]
     pub source_path: String,
@@ -111,14 +110,15 @@ impl Variable {
         // TODO: Add validation errors
         Ok(Variable {
             name: variable.name.clone(),
-            data_type: variable.data_type.unwrap_or(variable::Type::String).clone(),
-            value: variable
-                .value
-                .unwrap_or(serde_yaml::from_str("{}").unwrap())
-                .clone(),
-            modifier: variable.modifier.clone(),
-            format: variable.format,
-            file: variable.file,
+            value: variable.value,
+            //data_type: variable.data_type.unwrap_or(variable::Type::String).clone(),
+            //value: variable
+            //    .value
+            //    .unwrap_or(serde_yaml::from_str("{}").unwrap())
+            //    .clone(),
+            //modifier: variable.modifier.clone(),
+            //format: variable.format,
+            //file: variable.file,
             source_path: source_path.to_string(),
         })
     }
@@ -149,7 +149,48 @@ impl Variable {
             }
         }
     }
+    pub fn generate_value(
+        &self,
+        definition: &Definition,
+        iteration: u32,
+        global_variables: Vec<Variable>,
+    ) -> String {
+        match &self.value {
+            StringOrDatumOrFile::File { file } => {
+                let file_path = if Path::new(file).exists() {
+                    file.clone()
+                } else {
+                    format!("{}{}", self.source_path, file)
+                };
 
+                return match std::fs::read_to_string(&file_path) {
+                    Ok(file_data) => file_data.trim().to_string(),
+                    Err(e) => {
+                        error!("error loading file ({}) content: {}", file_path, e);
+
+                        "".to_string()
+                    }
+                };
+            }
+            StringOrDatumOrFile::Value(str_val) => {
+                return definition.resolve_variables(str_val, &global_variables, iteration);
+            }
+            StringOrDatumOrFile::Schema(d) => {
+                return serde_json::to_string(d)
+                    .map(|jv| {
+                        definition.resolve_variables(jv.as_str(), &global_variables, iteration)
+                    })
+                    .and_then(|rs| serde_json::from_str::<DatumSchema>(rs.as_str()))
+                    .ok()
+                    .and_then(|ds| generate_value_from_schema(&ds, 10))
+                    .and_then(|v| serde_json::to_string(&v).ok())
+                    .unwrap_or_default();
+            }
+        }
+        //DARIUS FIX
+        String::default()
+    }
+    /*
     pub fn generate_value(&self, iteration: u32, global_variables: Vec<Variable>) -> String {
         let result = match self.data_type {
             variable::Type::Int => self.generate_int_value(iteration),
@@ -390,7 +431,7 @@ impl Variable {
             }
             _ => String::from(""),
         }
-    }
+    }*/
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -595,7 +636,8 @@ impl Definition {
                     continue;
                 }
 
-                let replacement = variable.generate_value(iteration, self.global_variables.clone());
+                let replacement =
+                    variable.generate_value(self, iteration, self.global_variables.clone());
                 replaced_url
                     .clone_from(&replaced_url.replace(var_pattern.as_str(), replacement.as_str()))
             }
@@ -621,7 +663,8 @@ impl Definition {
                     continue;
                 }
 
-                let replacement = variable.generate_value(iteration, self.global_variables.clone());
+                let replacement =
+                    variable.generate_value(self, iteration, self.global_variables.clone());
                 return (
                     parameter.param.clone(),
                     parameter
@@ -642,7 +685,8 @@ impl Definition {
                 continue;
             }
 
-            let replacement = variable.generate_value(iteration, self.global_variables.clone());
+            let replacement =
+                variable.generate_value(self, iteration, self.global_variables.clone());
             return (
                 header.header.clone(),
                 header
@@ -788,7 +832,8 @@ impl Definition {
                 continue;
             }
 
-            let replacement = variable.generate_value(iteration, self.global_variables.clone());
+            let replacement =
+                variable.generate_value(self, iteration, self.global_variables.clone());
             mut_string = mut_string
                 .replace(var_pattern.as_str(), replacement.as_str())
                 .trim()
@@ -897,11 +942,7 @@ mod tests {
             iterate: 0,
             variables: vec![Variable {
                 name: "my_var".to_string(),
-                data_type: variable::Type::String,
-                value: serde_yaml::to_value("my_val").unwrap(),
-                modifier: None,
-                format: None,
-                file: None,
+                value: StringOrDatumOrFile::Value("my_val".to_string()),
                 source_path: "path".to_string(),
             }],
             global_variables: vec![],
@@ -933,11 +974,12 @@ mod tests {
         //to the vars in the TD.
         let vars: Vec<Variable> = vec![Variable {
             name: "my_var".to_string(),
-            data_type: variable::Type::String,
-            value: serde_yaml::to_value("my_val2").unwrap(),
-            modifier: None,
-            format: None,
-            file: None,
+            value: StringOrDatumOrFile::Value("my_val2".to_string()),
+            //data_type: variable::Type::String,
+            //value: serde_yaml::to_value("my_val2").unwrap(),
+            //modifier: None,
+            //format: None,
+            //file: None,
             source_path: "path".to_string(),
         }];
         let td = Definition {
@@ -951,20 +993,12 @@ mod tests {
             iterate: 0,
             variables: vec![Variable {
                 name: "my_var".to_string(),
-                data_type: variable::Type::String,
-                value: serde_yaml::to_value("my_val").unwrap(),
-                modifier: None,
-                format: None,
-                file: None,
+                value: StringOrDatumOrFile::Value("my_val".to_string()),
                 source_path: "path".to_string(),
             }],
             global_variables: vec![Variable {
                 name: "my_var2".to_string(),
-                data_type: variable::Type::String,
-                value: serde_yaml::to_value("my_val3").unwrap(),
-                modifier: None,
-                format: None,
-                file: None,
+                value: StringOrDatumOrFile::Value("my_val3".to_string()),
                 source_path: "path".to_string(),
             }],
             stages: vec![],

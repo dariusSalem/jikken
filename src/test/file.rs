@@ -22,7 +22,7 @@ use std::hash::{Hash, Hasher};
 use validated::Validated;
 
 //add pattern
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Default, Hash)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Specification<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -188,7 +188,7 @@ where
     }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize, Hash, PartialEq)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
 
 //How can I lift the default format into the type?
 pub struct DateSpecification {
@@ -356,7 +356,7 @@ impl Hash for Specification<f64> {
     }
 }*/
 
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, Hash)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum DatumSchema {
@@ -553,7 +553,7 @@ impl Checker for DatumSchema {
     }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize, Hash, PartialEq)]
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
 pub struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
@@ -630,7 +630,7 @@ impl Hash for UnvalidatedCompareRequest {
     }
 }
 
-#[derive(Debug, Serialize, Clone, PartialEq, Deserialize, Hash)]
+#[derive(Debug, Serialize, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum ValueOrSpecification<T> {
     Value(T),
@@ -673,7 +673,7 @@ pub enum ValueOrSchema {
     Value(serde_json::Value),
 }
 
-#[derive(Debug, Serialize, Clone, Deserialize, PartialEq, Hash)]
+#[derive(Debug, Serialize, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum StringOrDatumOrFile {
     File { file: String },
@@ -793,16 +793,16 @@ impl Default for UnvalidatedResponse {
         }
     }
 }
-
+/*
 impl Hash for UnvalidatedResponse {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.status.hash(state);
         self.headers.hash(state);
         self.ignore.hash(state);
     }
-}
+}*/
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnvalidatedVariable {
     pub name: String,
@@ -824,7 +824,7 @@ pub struct UnvalidatedVariable {
     pub file: Option<String>,
 }*/
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedStage {
     pub request: UnvalidatedRequest,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -839,13 +839,13 @@ pub struct UnvalidatedStage {
     pub delay: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedRequestResponse {
     pub request: UnvalidatedRequest,
     pub response: Option<UnvalidatedResponse>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedCleanup {
     pub onsuccess: Option<UnvalidatedRequest>,
     pub onfailure: Option<UnvalidatedRequest>,
