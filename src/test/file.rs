@@ -673,24 +673,7 @@ impl Checker for DatumSchema {
     ) -> Vec<Validated<(), String>> {
         self.check(val, formatter)
     }
-}
-/*
-#[derive(Hash, Serialize, Debug, Clone, Deserialize, PartialEq)]
-pub struct DocumentSchema {
-    pub schema: DatumSchema,
-}
-
-impl Checker for DocumentSchema {
-    type Item = serde_json::Value;
-    fn check(
-        &self,
-        val: &serde_json::Value,
-        formatter: &impl Fn(&str, &str) -> String,
-    ) -> Vec<Validated<(), String>> {
-        self.schema.check(val, formatter)
-    }
-}
-*/
+}s
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedRequest {
@@ -700,7 +683,7 @@ pub struct UnvalidatedRequest {
     pub params: Option<Vec<http::Parameter>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<Vec<http::Header>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub body: Option<BodyOrSchema>,
 }
 
@@ -823,7 +806,7 @@ impl<'a> BodyOrSchemaChecker<'a> {
     pub fn check_schema(
         actual: &serde_json::Value,
         schema: &DatumSchema,
-        ignore: &[String],
+        _ignore: &[String],
         formatter: &impl Fn(&str, &str) -> String,
     ) -> Result<Vec<Validated<(), String>>, Box<dyn Error + Send + Sync>> {
         trace!("validating response body using schema");
@@ -926,14 +909,6 @@ impl Default for UnvalidatedResponse {
         }
     }
 }
-/*
-impl Hash for UnvalidatedResponse {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.status.hash(state);
-        self.headers.hash(state);
-        self.ignore.hash(state);
-    }
-}*/
 
 #[derive(Hash, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -942,20 +917,6 @@ pub struct UnvalidatedVariable {
     #[serde(flatten)]
     pub value: StringOrDatumOrFile,
 }
-/*
-pub struct UnvalidatedVariable {
-    pub name: String,
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub data_type: Option<variable::Type>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<serde_yaml::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier: Option<variable::Modifier>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub format: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-}*/
 
 #[derive(Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedStage {
