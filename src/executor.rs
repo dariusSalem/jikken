@@ -3,9 +3,9 @@ use crate::json::extractor::extract_json;
 use crate::telemetry;
 use crate::test;
 use crate::test::definition::ResponseDescriptor;
+use crate::test::file::BodyOrSchema;
+use crate::test::file::BodyOrSchemaChecker;
 use crate::test::file::Checker;
-use crate::test::file::ValueOrSchema;
-use crate::test::file::ValueOrSchemaChecker;
 use crate::test::file::ValueOrSpecification;
 use crate::test::http;
 use crate::test::http::Header;
@@ -403,7 +403,7 @@ impl ResponseResultData {
 pub struct ExpectedResultData {
     pub headers: Vec<http::Header>,
     pub status: Option<ValueOrSpecification<u16>>,
-    pub body: Option<ValueOrSchema>,
+    pub body: Option<BodyOrSchema>,
 }
 
 impl ExpectedResultData {
@@ -921,12 +921,12 @@ fn process_response(
     };
 
     let validate_body = |validation_type: &str,
-                         expected: &std::option::Option<ValueOrSchema>,
+                         expected: &std::option::Option<BodyOrSchema>,
                          actual: &serde_json::Value,
                          ignore_body: &[String]|
      -> Vec<Validated<(), String>> {
         if let Some(exp) = expected {
-            ValueOrSchemaChecker {
+            BodyOrSchemaChecker {
                 value_or_schema: exp,
                 ignore_values: ignore_body,
             }
@@ -1768,7 +1768,7 @@ mod tests {
     fn process_response_multiple_failures() {
         let expected = ExpectedResultData {
             status: Some(ValueOrSpecification::Value(200)),
-            body: Some(ValueOrSchema::Value(json!({
+            body: Some(BodyOrSchema::Body(json!({
                 "Name" : "Bob"
             }))),
             headers: Vec::default(),
@@ -1857,7 +1857,7 @@ mod tests {
     fn process_response_body_mismatch() {
         let expected = ExpectedResultData {
             status: Some(ValueOrSpecification::Value(200)),
-            body: Some(ValueOrSchema::Value(json!({
+            body: Some(BodyOrSchema::Body(json!({
                 "Name" : "Bob"
             }))),
             headers: Vec::default(),
@@ -1898,7 +1898,7 @@ mod tests {
     fn process_response_body_match() {
         let expected = ExpectedResultData {
             status: Some(ValueOrSpecification::Value(200)),
-            body: Some(ValueOrSchema::Value(json!({
+            body: Some(BodyOrSchema::Body(json!({
                 "Name" : "Bob"
             }))),
             headers: Vec::default(),

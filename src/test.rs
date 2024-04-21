@@ -4,13 +4,11 @@ pub mod http;
 pub mod template;
 pub mod validation;
 pub mod variable;
-use crate::test::file::ValueOrSchema;
+use crate::test::file::BodyOrSchema;
 
 use crate::test::definition::RequestBody;
 use crate::test::file::DatumSchema;
-use crate::test::file::DocumentSchema;
 use crate::test::file::StringOrDatumOrFile;
-use chrono::{offset::TimeZone, Days, Local, Months, NaiveDate};
 use log::{debug, error, trace};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
@@ -780,13 +778,13 @@ impl Definition {
 
     pub fn resolve_body_variables(
         &self,
-        body: &ValueOrSchema,
+        body: &BodyOrSchema,
         variables: &[Variable],
         iteration: u32,
-    ) -> Option<ValueOrSchema> {
+    ) -> Option<BodyOrSchema> {
         return match body {
-            ValueOrSchema::Schema(s) => self.resolve_schema_variables(s, variables, iteration),
-            ValueOrSchema::Value(v) => self.resolve_body_value_variables(v, variables, iteration),
+            BodyOrSchema::Schema(s) => self.resolve_schema_variables(s, variables, iteration),
+            BodyOrSchema::Body(v) => self.resolve_body_value_variables(v, variables, iteration),
         };
     }
 
@@ -795,7 +793,7 @@ impl Definition {
         json_val: &serde_json::Value,
         variables: &[Variable],
         iteration: u32,
-    ) -> Option<ValueOrSchema> {
+    ) -> Option<BodyOrSchema> {
         serde_json::to_string(&json_val)
             .map(|jv| self.resolve_variables(jv.as_str(), variables, iteration))
             .and_then(|rs| serde_json::from_str(rs.as_str()))
@@ -804,10 +802,10 @@ impl Definition {
 
     fn resolve_schema_variables(
         &self,
-        schema: &DocumentSchema,
+        schema: &DatumSchema,
         variables: &[Variable],
         iteration: u32,
-    ) -> Option<ValueOrSchema> {
+    ) -> Option<BodyOrSchema> {
         serde_json::to_string(&schema)
             .map(|jv| self.resolve_variables(jv.as_str(), variables, iteration))
             .and_then(|rs| serde_json::from_str(rs.as_str()))
@@ -874,8 +872,8 @@ impl Definition {
             return self
                 .resolve_body_variables(&body.data, variables, iteration)
                 .and_then(|b| match b {
-                    ValueOrSchema::Schema(s) => generate_value_from_schema(&s.schema, 10),
-                    ValueOrSchema::Value(v) => Some(v),
+                    BodyOrSchema::Schema(s) => generate_value_from_schema(&s, 10),
+                    BodyOrSchema::Body(v) => Some(v),
                 });
         }
 
@@ -888,7 +886,7 @@ impl Definition {
         body: &Option<RequestBody>,
         variables: &[Variable],
         iteration: u32,
-    ) -> Option<ValueOrSchema> {
+    ) -> Option<BodyOrSchema> {
         if let Some(body) = body {
             if !body.matches_variable.get() {
                 return Some(body.data.clone());
@@ -976,7 +974,7 @@ mod tests {
         };
 
         let body = RequestBody {
-            data: ValueOrSchema::Value(serde_json::to_value("this_is_my_body").unwrap()),
+            data: BodyOrSchema::Body(serde_json::to_value("this_is_my_body").unwrap()),
             matches_variable: false.into(),
         };
 
@@ -1031,7 +1029,7 @@ mod tests {
         };
 
         let body = RequestBody {
-            data: ValueOrSchema::Value(
+            data: BodyOrSchema::Body(
                 serde_json::to_value(format!("this_is_my_body_${{my_var}}_${{my_var2}}")).unwrap(),
             ),
             matches_variable: true.into(),

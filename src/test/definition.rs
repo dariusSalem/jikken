@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashSet;
 
-use super::file::ValueOrSchema;
+use super::file::BodyOrSchema;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RequestBody {
-    pub data: ValueOrSchema,
+    pub data: BodyOrSchema,
 
     #[serde(skip_serializing, skip_deserializing)]
     pub matches_variable: Cell<bool>,

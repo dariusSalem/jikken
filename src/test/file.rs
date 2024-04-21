@@ -1,9 +1,9 @@
 use crate::json::filter::filter_json;
 use crate::test;
 use crate::test::file::Validated::Good;
-use crate::test::NaiveDate;
 use crate::test::{definition, http, variable};
 use chrono::Local;
+use chrono::NaiveDate;
 use chrono::TimeZone;
 use chrono::{DateTime, ParseError};
 use chrono::{Days, Months};
@@ -674,10 +674,9 @@ impl Checker for DatumSchema {
         self.check(val, formatter)
     }
 }
-
+/*
 #[derive(Hash, Serialize, Debug, Clone, Deserialize, PartialEq)]
 pub struct DocumentSchema {
-    #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
 }
 
@@ -691,6 +690,7 @@ impl Checker for DocumentSchema {
         self.schema.check(val, formatter)
     }
 }
+*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedRequest {
@@ -701,7 +701,7 @@ pub struct UnvalidatedRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<Vec<http::Header>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<ValueOrSchema>,
+    pub body: Option<BodyOrSchema>,
 }
 
 impl Default for UnvalidatedRequest {
@@ -736,7 +736,7 @@ pub struct UnvalidatedCompareRequest {
     pub headers: Option<Vec<http::Header>>,
     pub add_headers: Option<Vec<http::Header>>,
     pub ignore_headers: Option<Vec<String>>,
-    pub body: Option<ValueOrSchema>,
+    pub body: Option<BodyOrSchema>,
 }
 
 impl Hash for UnvalidatedCompareRequest {
@@ -790,17 +790,18 @@ where
 
 #[derive(Debug, Serialize, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
-pub enum ValueOrSchema {
-    Schema(DocumentSchema),
-    Value(serde_json::Value),
+pub enum BodyOrSchema {
+    #[serde(rename = "bodySchema")]
+    Schema(DatumSchema),
+    #[serde(rename = "body")]
+    Body(serde_json::Value),
 }
 
-impl Hash for ValueOrSchema {
+impl Hash for BodyOrSchema {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        //self.method.hash(state);
         match self {
-            ValueOrSchema::Schema(ds) => ds.hash(state),
-            ValueOrSchema::Value(v) => serde_json::to_string(v).unwrap().hash(state),
+            BodyOrSchema::Schema(ds) => ds.hash(state),
+            BodyOrSchema::Body(v) => serde_json::to_string(v).unwrap().hash(state),
         }
     }
 }
@@ -813,15 +814,15 @@ pub enum StringOrDatumOrFile {
     Value(String),
 }
 
-pub struct ValueOrSchemaChecker<'a> {
-    pub value_or_schema: &'a ValueOrSchema,
+pub struct BodyOrSchemaChecker<'a> {
+    pub value_or_schema: &'a BodyOrSchema,
     pub ignore_values: &'a [String],
 }
 
-impl<'a> ValueOrSchemaChecker<'a> {
+impl<'a> BodyOrSchemaChecker<'a> {
     pub fn check_schema(
         actual: &serde_json::Value,
-        schema: &DocumentSchema,
+        schema: &DatumSchema,
         ignore: &[String],
         formatter: &impl Fn(&str, &str) -> String,
     ) -> Result<Vec<Validated<(), String>>, Box<dyn Error + Send + Sync>> {
@@ -874,7 +875,7 @@ impl<'a> ValueOrSchemaChecker<'a> {
     }
 }
 
-impl<'a> Checker for ValueOrSchemaChecker<'a> {
+impl<'a> Checker for BodyOrSchemaChecker<'a> {
     type Item = serde_json::Value;
     fn check(
         &self,
@@ -882,11 +883,11 @@ impl<'a> Checker for ValueOrSchemaChecker<'a> {
         formatter: &impl Fn(&str, &str) -> String,
     ) -> Vec<Validated<(), String>> {
         let res = match self.value_or_schema {
-            ValueOrSchema::Value(v) => {
-                ValueOrSchemaChecker::check_expected_value(val, v, self.ignore_values, formatter)
+            BodyOrSchema::Body(v) => {
+                BodyOrSchemaChecker::check_expected_value(val, v, self.ignore_values, formatter)
             }
-            ValueOrSchema::Schema(s) => {
-                ValueOrSchemaChecker::check_schema(val, s, self.ignore_values, formatter)
+            BodyOrSchema::Schema(s) => {
+                BodyOrSchemaChecker::check_schema(val, s, self.ignore_values, formatter)
             }
         };
 
@@ -906,8 +907,8 @@ pub struct UnvalidatedResponse {
     pub status: Option<ValueOrSpecification<u16>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<Vec<http::Header>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<ValueOrSchema>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    pub body: Option<BodyOrSchema>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1583,8 +1584,8 @@ mod tests {
         assert_eq!(
             true,
             match again.body.unwrap() {
-                ValueOrSchema::Schema(..) => true,
-                ValueOrSchema::Value(..) => false,
+                BodyOrSchema::Schema(..) => true,
+                BodyOrSchema::Body(..) => false,
             }
         );
     }
@@ -1602,8 +1603,8 @@ mod tests {
         assert_eq!(
             true,
             match again.body.unwrap() {
-                ValueOrSchema::Schema(..) => false,
-                ValueOrSchema::Value(..) => true,
+                BodyOrSchema::Schema(..) => false,
+                BodyOrSchema::Body(..) => true,
             }
         );
     }

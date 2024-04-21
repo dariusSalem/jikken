@@ -1,5 +1,5 @@
 use crate::test;
-use crate::test::{definition, file, http, variable};
+use crate::test::{definition, file, http};
 use std::cell::Cell;
 use std::error::Error;
 use uuid::Uuid;
