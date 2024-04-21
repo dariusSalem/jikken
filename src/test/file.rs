@@ -22,7 +22,7 @@ use std::hash::{Hash, Hasher};
 use validated::Validated;
 
 //add pattern
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Default)]
+#[derive(Hash, Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Specification<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,6 +35,30 @@ pub struct Specification<T> {
     pub one_of: Option<Vec<T>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub none_of: Option<Vec<T>>,
+}
+
+#[derive(Serialize, Debug, Clone, Deserialize, PartialEq, PartialOrd, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FloatSpecification {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub one_of: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub none_of: Option<Vec<f64>>,
+}
+
+//How can I lift the default format into the type?
+#[derive(Hash, Serialize, Debug, Clone, Deserialize, PartialEq)]
+pub struct DateSpecification {
+    #[serde(flatten)]
+    pub specification: Specification<String>,
+    pub format: Option<String>,
+    pub modifier: Option<variable::Modifier>,
 }
 
 pub trait Checker {
@@ -154,16 +178,113 @@ where
     }
 }
 
-//Generates values in line with specification
-/*pub trait Generator<T>
-where
-    T: Checker,
-{
-    fn generate(&self, checker: &T) -> Option<T::Item>;
+impl FloatSpecification {
+    fn check_val(
+        &self,
+        actual: &f64,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.value {
+            Some(t) => {
+                if t == actual {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("{}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_min(
+        &self,
+        actual: &f64,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.min {
+            Some(t) => {
+                if t <= actual {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("minimum of {}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_max(
+        &self,
+        actual: &f64,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.max {
+            Some(t) => {
+                if t >= actual {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("maximum of {}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_one_of(
+        &self,
+        actual: &f64,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.one_of {
+            Some(t) => {
+                if t.contains(actual) {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("one of {:?}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
+
+    fn check_none_of(
+        &self,
+        actual: &f64,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Validated<(), String> {
+        match &self.none_of {
+            Some(t) => {
+                if !t.contains(actual) {
+                    Good(())
+                } else {
+                    Validated::fail(formatter(
+                        format!("none of {:?}", t).as_str(),
+                        format!("{}", actual).as_str(),
+                    ))
+                }
+            }
+            None => Good(()),
+        }
+    }
 }
 
-impl<T> Generate
-*/
+impl Hash for FloatSpecification {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        serde_json::to_string(self).unwrap().hash(state)
+    }
+}
 
 impl<T> Checker for Specification<T>
 where
@@ -188,14 +309,21 @@ where
     }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
-
-//How can I lift the default format into the type?
-pub struct DateSpecification {
-    #[serde(flatten)]
-    pub specification: Specification<String>,
-    pub format: Option<String>,
-    pub modifier: Option<variable::Modifier>,
+impl Checker for FloatSpecification {
+    type Item = f64;
+    fn check(
+        &self,
+        val: &f64,
+        formatter: &impl Fn(&str, &str) -> String,
+    ) -> Vec<Validated<(), String>> {
+        vec![
+            self.check_val(&val, formatter),
+            self.check_min(&val, formatter),
+            self.check_max(&val, formatter),
+            self.check_none_of(&val, formatter),
+            self.check_one_of(&val, formatter),
+        ]
+    }
 }
 
 impl DateSpecification {
@@ -349,20 +477,14 @@ impl Checker for DateSpecification {
         ]
     }
 }
-/*
-impl Hash for Specification<f64> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        serde_json::to_string(self).unwrap().hash(state)
-    }
-}*/
 
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
+#[derive(Hash, Serialize, Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum DatumSchema {
     Float {
         #[serde(flatten)]
-        specification: Option<Specification<f64>>,
+        specification: Option<FloatSpecification>,
     },
     Int {
         #[serde(flatten)]
@@ -553,7 +675,7 @@ impl Checker for DatumSchema {
     }
 }
 
-#[derive(Serialize, Debug, Clone, Deserialize, PartialEq)]
+#[derive(Hash, Serialize, Debug, Clone, Deserialize, PartialEq)]
 pub struct DocumentSchema {
     #[serde(rename = "_jk_schema")]
     pub schema: DatumSchema,
@@ -630,7 +752,7 @@ impl Hash for UnvalidatedCompareRequest {
     }
 }
 
-#[derive(Debug, Serialize, Clone, PartialEq, Deserialize)]
+#[derive(Hash, Debug, Serialize, Clone, PartialEq, Deserialize)]
 #[serde(untagged)]
 pub enum ValueOrSpecification<T> {
     Value(T),
@@ -673,7 +795,7 @@ pub enum ValueOrSchema {
     Value(serde_json::Value),
 }
 
-#[derive(Debug, Serialize, Clone, Deserialize, PartialEq)]
+#[derive(Hash, Debug, Serialize, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum StringOrDatumOrFile {
     File { file: String },
@@ -768,7 +890,7 @@ impl<'a> Checker for ValueOrSchemaChecker<'a> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<ValueOrSpecification<u16>>,
@@ -802,7 +924,7 @@ impl Hash for UnvalidatedResponse {
     }
 }*/
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Hash, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnvalidatedVariable {
     pub name: String,
@@ -824,7 +946,7 @@ pub struct UnvalidatedVariable {
     pub file: Option<String>,
 }*/
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedStage {
     pub request: UnvalidatedRequest,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -839,13 +961,13 @@ pub struct UnvalidatedStage {
     pub delay: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedRequestResponse {
     pub request: UnvalidatedRequest,
     pub response: Option<UnvalidatedResponse>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Hash, Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedCleanup {
     pub onsuccess: Option<UnvalidatedRequest>,
     pub onfailure: Option<UnvalidatedRequest>,
@@ -891,6 +1013,33 @@ where
                 Some(vals) => vals
                     .get(rng.gen_range(0..vals.len()))
                     .unwrap_or(&T::default())
+                    .clone(),
+                None => rng.gen_range(
+                    spec.min.clone().unwrap_or_default()..spec.max.clone().unwrap_or_default(),
+                ),
+            };
+        })
+        .filter(|v| {
+            spec.check(v, &|_e, _a| "".to_string())
+                .into_iter()
+                .collect::<Validated<Vec<()>, String>>()
+                .is_good()
+        })
+        .nth(0)
+}
+
+pub fn generate_float(spec: &FloatSpecification, max_attemps: u16) -> Option<f64> {
+    if spec.value.is_some() {
+        return spec.value.clone();
+    }
+
+    let mut rng = rand::thread_rng();
+    (0..max_attemps)
+        .map(|_| {
+            return match spec.one_of.as_ref() {
+                Some(vals) => vals
+                    .get(rng.gen_range(0..vals.len()))
+                    .unwrap_or(&f64::default())
                     .clone(),
                 None => rng.gen_range(
                     spec.min.clone().unwrap_or_default()..spec.max.clone().unwrap_or_default(),
@@ -971,10 +1120,10 @@ pub fn generate_value_from_schema(
     max_attempts: u16,
 ) -> Option<serde_json::Value> {
     return match schema {
-        DatumSchema::Float { specification } => generate_number(
+        DatumSchema::Float { specification } => generate_float(
             specification
                 .as_ref()
-                .unwrap_or(&Specification::<f64>::default()),
+                .unwrap_or(&&FloatSpecification::default()),
             max_attempts,
         )
         .map(|v| serde_json::Value::from(v)),

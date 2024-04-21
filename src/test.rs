@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use self::file::{generate_value_from_schema, UnvalidatedRequest, UnvalidatedResponse};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Hash)]
 pub struct File {
     pub name: Option<String>,
     pub id: Option<String>,
@@ -84,10 +84,10 @@ impl Default for File {
 
 impl File {
     pub fn generate_id(&self) -> String {
-        Uuid::new_v4().to_string()
-        //let mut s = DefaultHasher::new();
-        //self.hash(&mut s);
-        //format!("{}", s.finish())
+        //Uuid::new_v4().to_string()
+        let mut s = DefaultHasher::new();
+        self.hash(&mut s);
+        format!("{}", s.finish())
     }
 }
 
@@ -111,14 +111,6 @@ impl Variable {
         Ok(Variable {
             name: variable.name.clone(),
             value: variable.value,
-            //data_type: variable.data_type.unwrap_or(variable::Type::String).clone(),
-            //value: variable
-            //    .value
-            //    .unwrap_or(serde_yaml::from_str("{}").unwrap())
-            //    .clone(),
-            //modifier: variable.modifier.clone(),
-            //format: variable.format,
-            //file: variable.file,
             source_path: source_path.to_string(),
         })
     }
@@ -189,8 +181,6 @@ impl Variable {
                     .to_string();
             }
         }
-        //DARIUS FIX
-        String::default()
     }
     /*
     pub fn generate_value(&self, iteration: u32, global_variables: Vec<Variable>) -> String {
