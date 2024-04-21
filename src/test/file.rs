@@ -673,7 +673,7 @@ impl Checker for DatumSchema {
     ) -> Vec<Validated<(), String>> {
         self.check(val, formatter)
     }
-}s
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnvalidatedRequest {
