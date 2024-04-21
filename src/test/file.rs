@@ -795,6 +795,16 @@ pub enum ValueOrSchema {
     Value(serde_json::Value),
 }
 
+impl Hash for ValueOrSchema {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        //self.method.hash(state);
+        match self {
+            ValueOrSchema::Schema(ds) => ds.hash(state),
+            ValueOrSchema::Value(v) => serde_json::to_string(v).unwrap().hash(state),
+        }
+    }
+}
+
 #[derive(Hash, Debug, Serialize, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum StringOrDatumOrFile {
