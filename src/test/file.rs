@@ -772,7 +772,6 @@ where
 }
 
 #[derive(Debug, Serialize, Clone, Deserialize, PartialEq)]
-#[serde(untagged)]
 pub enum BodyOrSchema {
     #[serde(rename = "bodySchema")]
     Schema(DatumSchema),
@@ -1534,10 +1533,8 @@ mod tests {
 
     #[test]
     fn unvalidated_response_schema_has_desired_serde_behavior() {
-        let foo = serde_json::json!({ "body" : {
-            "_jk_schema": {
-                "type" : "object"
-            }
+        let foo = serde_json::json!({ "bodySchema" : {
+            "type" : "object"
         }});
 
         let again: UnvalidatedResponse = serde_json::from_value(foo).unwrap();

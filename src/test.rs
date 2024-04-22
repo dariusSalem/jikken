@@ -796,7 +796,8 @@ impl Definition {
     ) -> Option<BodyOrSchema> {
         serde_json::to_string(&json_val)
             .map(|jv| self.resolve_variables(jv.as_str(), variables, iteration))
-            .and_then(|rs| serde_json::from_str(rs.as_str()))
+            .and_then(|rs| serde_json::from_str::<serde_json::Value>(rs.as_str()))
+            .map(|val| BodyOrSchema::Body(val))
             .ok()
     }
 
@@ -808,12 +809,13 @@ impl Definition {
     ) -> Option<BodyOrSchema> {
         serde_json::to_string(&schema)
             .map(|jv| self.resolve_variables(jv.as_str(), variables, iteration))
-            .and_then(|rs| serde_json::from_str(rs.as_str()))
+            .and_then(|rs| serde_json::from_str::<DatumSchema>(rs.as_str()))
+            .map(|schema| BodyOrSchema::Schema(schema))
             .ok()
     }
 
     fn resolve_variables(&self, json_val: &str, variables: &[Variable], iteration: u32) -> String {
-        let mut mut_string = json_val.to_string().trim_matches('"').to_string();
+        let mut mut_string = json_val.to_string();
 
         for variable in variables.iter().chain(self.global_variables.iter()) {
             let var_pattern = format!("${{{}}}", variable.name);
@@ -834,6 +836,7 @@ impl Definition {
             };
 
             if do_extra {
+                mut_string = mut_string.trim_matches('"').to_string();
                 let expected_lead_pattern = "\"";
                 let expected_trail_pattern = "\"";
 
@@ -855,7 +858,6 @@ impl Definition {
                     .to_string();
             }
         }
-
         mut_string
     }
 
