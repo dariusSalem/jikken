@@ -925,7 +925,9 @@ fn process_response(
                          actual: &serde_json::Value,
                          ignore_body: &[String]|
      -> Vec<Validated<(), String>> {
+        trace!("In validate body");
         if let Some(exp) = expected {
+            trace!("validating body");
             BodyOrSchemaChecker {
                 value_or_schema: exp,
                 ignore_values: ignore_body,

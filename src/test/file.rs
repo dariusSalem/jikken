@@ -514,6 +514,7 @@ impl DatumSchema {
         actual: &serde_json::Value,
         formatter: &impl Fn(&str, &str) -> String,
     ) -> Vec<Validated<(), String>> {
+        trace!("validating datum");
         let mut ret = self.check_float(actual, formatter);
         ret.append(self.check_int(actual, formatter).as_mut());
         ret.append(self.check_string(actual, formatter).as_mut());
