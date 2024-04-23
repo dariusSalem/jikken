@@ -12,7 +12,7 @@ use crate::test::file::StringOrDatumOrFile;
 use log::{debug, error, trace};
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use uuid::Uuid;
@@ -143,7 +143,7 @@ impl Variable {
         &self,
         definition: &Definition,
         iteration: u32,
-        global_variables: Vec<Variable>,
+        global_variables: &[Variable],
     ) -> String {
         match &self.value {
             StringOrDatumOrFile::File { file } => {
@@ -163,12 +163,22 @@ impl Variable {
                 };
             }
             StringOrDatumOrFile::Value(str_val) => {
-                return definition.resolve_variables(str_val, &global_variables, iteration);
+                return definition.resolve_variables(
+                    str_val,
+                    &HashMap::new(),
+                    &global_variables,
+                    iteration,
+                );
             }
             StringOrDatumOrFile::Schema(d) => {
                 return serde_json::to_string(d)
                     .map(|jv| {
-                        definition.resolve_variables(jv.as_str(), &global_variables, iteration)
+                        definition.resolve_variables(
+                            jv.as_str(),
+                            &HashMap::new(),
+                            &global_variables,
+                            iteration,
+                        )
                     })
                     .and_then(|rs| serde_json::from_str::<DatumSchema>(rs.as_str()))
                     .ok()
@@ -217,7 +227,7 @@ impl Variable {
         }
     }
 
-    fn generate_string_value(&self, iteration: u32, global_variables: Vec<Variable>) -> String {
+    fn generate_string_value(&self, iteration: u32, global_variables: &[Variable]) -> String {
         match &self.file {
             Some(f) => {
                 let file = if Path::new(f).exists() {
@@ -237,6 +247,7 @@ impl Variable {
             }
             None => match &self.value {
                 serde_yaml::Value::String(v) => {
+                    debug!("variable: {:?}", self);
                     debug!("string expression: {:?}", v);
 
                     if v.contains('$') {
@@ -292,7 +303,7 @@ impl Variable {
         }
     }
 
-    fn generate_date_value(&self, iteration: u32, global_variables: Vec<Variable>) -> String {
+    fn generate_date_value(&self, iteration: u32, global_variables: &[Variable]) -> String {
         // TODO: Add proper error handling
         match &self.value {
             serde_yaml::Value::String(v) => {
@@ -606,6 +617,7 @@ impl Definition {
         iteration: u32,
         url: &str,
         params: &[http::Parameter],
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
     ) -> String {
         let joined: Vec<_> = params
@@ -619,6 +631,21 @@ impl Definition {
         let modified_url = if url.contains('$') {
             let mut replaced_url = url.to_string();
 
+            let state_vars: Vec<(String, &String)> = state_variables
+                .iter()
+                .map(|(k, v)| (format!("${{{}}}", k), v))
+                .collect();
+
+            for (var_pattern, value) in &state_vars {
+                if !replaced_url.contains(var_pattern) {
+                    continue;
+                }
+
+                debug!("state variable match: {}", var_pattern);
+                replaced_url
+                    .clone_from(&replaced_url.replace(var_pattern.as_str(), value.as_str()));
+            }
+
             for variable in variables.iter().chain(self.global_variables.iter()) {
                 let var_pattern = format!("${{{}}}", variable.name);
 
@@ -626,8 +653,7 @@ impl Definition {
                     continue;
                 }
 
-                let replacement =
-                    variable.generate_value(self, iteration, self.global_variables.clone());
+                let replacement = variable.generate_value(self, iteration, &self.global_variables);
                 replaced_url
                     .clone_from(&replaced_url.replace(var_pattern.as_str(), replacement.as_str()))
             }
@@ -653,8 +679,7 @@ impl Definition {
                     continue;
                 }
 
-                let replacement =
-                    variable.generate_value(self, iteration, self.global_variables.clone());
+                let replacement = variable.generate_value(self, iteration, &self.global_variables);
                 return (
                     parameter.param.clone(),
                     parameter
@@ -675,8 +700,7 @@ impl Definition {
                 continue;
             }
 
-            let replacement =
-                variable.generate_value(self, iteration, self.global_variables.clone());
+            let replacement = variable.generate_value(self, iteration, &self.global_variables);
             return (
                 header.header.clone(),
                 header
@@ -779,23 +803,29 @@ impl Definition {
     pub fn resolve_body_variables(
         &self,
         body: &BodyOrSchema,
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
         iteration: u32,
     ) -> Option<BodyOrSchema> {
         return match body {
-            BodyOrSchema::Schema(s) => self.resolve_schema_variables(s, variables, iteration),
-            BodyOrSchema::Body(v) => self.resolve_body_value_variables(v, variables, iteration),
+            BodyOrSchema::Schema(s) => {
+                self.resolve_schema_variables(s, state_variables, variables, iteration)
+            }
+            BodyOrSchema::Body(v) => {
+                self.resolve_body_value_variables(v, state_variables, variables, iteration)
+            }
         };
     }
 
     fn resolve_body_value_variables(
         &self,
         json_val: &serde_json::Value,
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
         iteration: u32,
     ) -> Option<BodyOrSchema> {
         serde_json::to_string(&json_val)
-            .map(|jv| self.resolve_variables(jv.as_str(), variables, iteration))
+            .map(|jv| self.resolve_variables(jv.as_str(), state_variables, variables, iteration))
             .and_then(|rs| serde_json::from_str::<serde_json::Value>(rs.as_str()))
             .map(|val| BodyOrSchema::Body(val))
             .ok()
@@ -804,18 +834,42 @@ impl Definition {
     fn resolve_schema_variables(
         &self,
         schema: &DatumSchema,
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
         iteration: u32,
     ) -> Option<BodyOrSchema> {
         serde_json::to_string(&schema)
-            .map(|jv| self.resolve_variables(jv.as_str(), variables, iteration))
+            .map(|jv| self.resolve_variables(jv.as_str(), state_variables, variables, iteration))
             .and_then(|rs| serde_json::from_str::<DatumSchema>(rs.as_str()))
             .map(|schema| BodyOrSchema::Schema(schema))
             .ok()
     }
 
-    fn resolve_variables(&self, json_val: &str, variables: &[Variable], iteration: u32) -> String {
+    fn resolve_variables(
+        &self,
+        json_val: &str,
+        state_variables: &HashMap<String, String>,
+        variables: &[Variable],
+        iteration: u32,
+    ) -> String {
         let mut mut_string = json_val.to_string();
+
+        let state_vars: Vec<(String, &String)> = state_variables
+            .iter()
+            .map(|(k, v)| (format!("${{{}}}", k), v))
+            .collect();
+
+        for (var_pattern, value) in &state_vars {
+            if !mut_string.contains(var_pattern) {
+                continue;
+            }
+
+            debug!("state variable match: {}", var_pattern);
+            mut_string = mut_string
+                .replace(var_pattern.as_str(), value.as_str())
+                .trim()
+                .to_string();
+        }
 
         for variable in variables.iter().chain(self.global_variables.iter()) {
             let var_pattern = format!("${{{}}}", variable.name);
@@ -823,8 +877,9 @@ impl Definition {
                 continue;
             }
 
-            let replacement =
-                variable.generate_value(self, iteration, self.global_variables.clone());
+            debug!("variable match: {}", var_pattern);
+
+            let replacement = variable.generate_value(self, iteration, &self.global_variables);
 
             //Do extra for non string stuff
             let do_extra = match &variable.value {
@@ -867,12 +922,13 @@ impl Definition {
     pub fn get_request_body(
         &self,
         body: &Option<RequestBody>,
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
         iteration: u32,
     ) -> Option<serde_json::Value> {
         if let Some(body) = body {
             return self
-                .resolve_body_variables(&body.data, variables, iteration)
+                .resolve_body_variables(&body.data, state_variables, variables, iteration)
                 .and_then(|b| match b {
                     BodyOrSchema::Schema(s) => generate_value_from_schema(&s, 10),
                     BodyOrSchema::Body(v) => Some(v),
@@ -886,15 +942,16 @@ impl Definition {
     pub fn get_expected_request_body(
         &self,
         body: &Option<RequestBody>,
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
         iteration: u32,
     ) -> Option<BodyOrSchema> {
         if let Some(body) = body {
-            if !body.matches_variable.get() {
+            if !body.matches_variable.get() && state_variables.is_empty() {
                 return Some(body.data.clone());
             }
 
-            return self.resolve_body_variables(&body.data, variables, iteration);
+            return self.resolve_body_variables(&body.data, state_variables, variables, iteration);
         }
 
         None
@@ -903,10 +960,11 @@ impl Definition {
     pub fn get_compare_body(
         &self,
         compare: &definition::CompareDescriptor,
+        state_variables: &HashMap<String, String>,
         variables: &[Variable],
         iteration: u32,
     ) -> Option<serde_json::Value> {
-        self.get_request_body(&compare.body, variables, iteration)
+        self.get_request_body(&compare.body, state_variables, variables, iteration)
     }
 }
 
@@ -943,7 +1001,10 @@ mod tests {
             disabled: false,
             filename: "/a/path.jkt".to_string(),
         };
-        assert_eq!(None, td.get_request_body(&None, vars.as_slice(), 1))
+        assert_eq!(
+            None,
+            td.get_request_body(&None, &HashMap::new(), vars.as_slice(), 1)
+        )
     }
 
     #[test]
@@ -982,7 +1043,7 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value("this_is_my_body").ok(),
-            td.get_request_body(&Some(body), vars.as_slice(), 1)
+            td.get_request_body(&Some(body), &HashMap::new(), vars.as_slice(), 1)
         )
     }
 
@@ -1039,7 +1100,7 @@ mod tests {
 
         assert_eq!(
             serde_json::to_value("this_is_my_body_my_val2_my_val3").ok(),
-            td.get_request_body(&Some(body), vars.as_slice(), 1)
+            td.get_request_body(&Some(body), &HashMap::new(), vars.as_slice(), 1)
         )
     }
 }

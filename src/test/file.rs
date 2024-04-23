@@ -1326,6 +1326,7 @@ mod tests {
                 .err()
                 .unwrap()
                 .len()
+                .get()
         );
     }
 

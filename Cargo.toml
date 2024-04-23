@@ -1,6 +1,6 @@
 [package]
 name = "jikken"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 authors = ["Louis Russo <louis@jikken.io>"]
 description = """
@@ -56,4 +56,4 @@ openapiv3-extended = { version="6.0.0", features = ["v2"] }
 num = { version = "0.4.1" }
 rand = { version = "0.8.5" }
 [dev-dependencies]
-nonempty-collections = { version="0.1.5" }
+nonempty-collections = { version="0.2.5" }
